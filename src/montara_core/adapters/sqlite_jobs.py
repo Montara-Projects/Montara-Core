@@ -1,0 +1,158 @@
+"""Single-node authority for jobs and attempts; all transitions atomic."""
+import sqlite3
+from uuid import uuid4
+
+from montara_core.adapters.sqlite_db import SQLiteDatabase
+from montara_core.domain.jobs import AttemptRef, Job, JobNotFound, JobState, TransitionError
+from montara_core.domain.projects import ProjectNotFound
+
+
+_COLUMNS = (
+    "j.id, j.project_id, j.state, j.generation, j.result, "
+    "(SELECT a.id FROM attempts a WHERE a.job_id = j.id AND a.generation = j.generation)"
+)
+
+
+def _job(row: tuple) -> Job:
+    return Job(row[0], row[1], JobState(row[2]), row[3], row[4], row[5])
+
+
+class SQLiteJobStore(SQLiteDatabase):
+    @staticmethod
+    def _read(connection: sqlite3.Connection, job_id: str, actor: str | None = None) -> Job:
+        sql = f"SELECT {_COLUMNS} FROM jobs j JOIN projects p ON p.id = j.project_id WHERE j.id = ?"
+        params = (job_id,)
+        if actor is not None:
+            sql += " AND p.owner_id = ?"
+            params += (actor,)
+        row = connection.execute(sql, params).fetchone()
+        if row is None:
+            raise JobNotFound("job not found")
+        return _job(row)
+
+    @staticmethod
+    def _attempt(connection: sqlite3.Connection, job: Job) -> tuple[str, str] | None:
+        return connection.execute(
+            "SELECT id, state FROM attempts WHERE job_id = ? AND generation = ?",
+            (job.id, job.generation),
+        ).fetchone()
+
+    @classmethod
+    def _exact_attempt(cls, connection: sqlite3.Connection, job: Job,
+                       attempt: AttemptRef) -> str:
+        current = cls._attempt(connection, job)
+        if (job.id != attempt.job_id or job.generation != attempt.generation
+                or current is None or current[0] != attempt.id):
+            raise TransitionError("stale or invalid attempt")
+        return current[1]
+
+    def create(self, actor: str, project: str, key: str) -> Job:
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if not connection.execute(
+                "SELECT 1 FROM projects WHERE id = ? AND owner_id = ?", (project, actor)
+            ).fetchone():
+                raise ProjectNotFound("project not found")
+            existing = connection.execute(
+                "SELECT id FROM jobs WHERE project_id = ? AND request_key = ?", (project, key)
+            ).fetchone()
+            if existing:
+                return self._read(connection, existing[0], actor)
+            job_id = str(uuid4())
+            connection.execute(
+                "INSERT INTO jobs(id, project_id, request_key, state, generation) "
+                "VALUES (?, ?, ?, 'queued', 0)", (job_id, project, key),
+            )
+            return self._read(connection, job_id, actor)
+
+    def get(self, actor: str, job_id: str) -> Job:
+        with self._connection() as connection:
+            return self._read(connection, job_id, actor)
+
+    def claim(self) -> AttemptRef | None:
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if connection.execute("SELECT 1 FROM jobs WHERE state = 'running'").fetchone():
+                return None
+            row = connection.execute(
+                "SELECT id, generation FROM jobs WHERE state = 'queued' ORDER BY rowid LIMIT 1"
+            ).fetchone()
+            if row is None:
+                return None
+            job_id, generation = row
+            ref = AttemptRef(job_id, str(uuid4()), generation + 1)
+            connection.execute(
+                "UPDATE jobs SET state = 'running', generation = ? WHERE id = ?",
+                (ref.generation, job_id),
+            )
+            connection.execute(
+                "INSERT INTO attempts(id, job_id, generation, state) VALUES (?, ?, ?, 'running')",
+                (ref.id, job_id, ref.generation),
+            )
+            return ref
+
+    def running_attempt(self) -> AttemptRef | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT j.id, a.id, j.generation FROM jobs j JOIN attempts a "
+                "ON a.job_id = j.id AND a.generation = j.generation "
+                "WHERE j.state = 'running' AND a.state = 'running'"
+            ).fetchone()
+            return AttemptRef(*row) if row else None
+
+    def finish(self, attempt: AttemptRef, outcome: str, result: str | None) -> Job:
+        if outcome not in ("succeeded", "failed", "interrupted"):
+            raise TransitionError("invalid outcome")
+        if (outcome == "succeeded") != (result is not None):
+            raise TransitionError("invalid outcome result")
+        target = JobState.FAILED if outcome == "interrupted" else JobState(outcome)
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            job = self._read(connection, attempt.job_id)
+            state = self._exact_attempt(connection, job, attempt)
+            if job.state == target and state == outcome and job.result == result:
+                return job  # exact terminal receipt replay
+            if job.state != JobState.RUNNING or state != "running":
+                raise TransitionError("attempt no longer active")
+            connection.execute("UPDATE attempts SET state = ? WHERE id = ?", (outcome, attempt.id))
+            connection.execute(
+                "UPDATE jobs SET state = ?, result = ? WHERE id = ?", (target, result, job.id)
+            )
+            return self._read(connection, job.id)
+
+    def retry(self, actor: str, attempt: AttemptRef) -> Job:
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            job = self._read(connection, attempt.job_id, actor)
+            state = self._exact_attempt(connection, job, attempt)
+            if state not in ("failed", "interrupted"):
+                raise TransitionError("attempt not retryable")
+            if job.state == JobState.QUEUED:
+                return job  # exact retry replay until next claim
+            if job.state != JobState.FAILED:
+                raise TransitionError("job not retryable")
+            connection.execute("UPDATE jobs SET state = 'queued' WHERE id = ?", (job.id,))
+            return self._read(connection, job.id, actor)
+
+    def cancel(self, actor: str, job_id: str, generation: int, attempt_id: str | None) -> Job:
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            job = self._read(connection, job_id, actor)
+            if job.generation != generation:
+                raise TransitionError("stale cancellation")
+            current = self._attempt(connection, job)
+            if attempt_id is not None:
+                if current is None or current[0] != attempt_id:
+                    raise TransitionError("stale cancellation")
+                if job.state == JobState.CANCELLED and current[1] == "cancelled":
+                    return job
+                if job.state != JobState.RUNNING or current[1] != "running":
+                    raise TransitionError("attempt no longer active")
+                connection.execute("UPDATE attempts SET state = 'cancelled' WHERE id = ?", (attempt_id,))
+            else:
+                if job.state == JobState.CANCELLED and (current is None or current[1] != "cancelled"):
+                    return job
+                if job.state != JobState.QUEUED:
+                    raise TransitionError("queued cancellation required")
+            connection.execute("UPDATE jobs SET state = 'cancelled' WHERE id = ?", (job.id,))
+            return self._read(connection, job.id, actor)

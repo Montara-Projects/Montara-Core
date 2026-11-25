@@ -3,4 +3,4 @@ Aplicar [AGENTS de MONTARA-BRAIN](https://github.com/Montara-Projects/MONTARA-BR
 
 FER autoriza alcance; Alfred coordina; un escritor por tarea/recurso. Leer el encargo BRAIN y comprobar HEAD antes de modificar. Rama propia, PR, evidencia verificable, revisión Alfred/QA; no merge ni despliegue por iniciativa propia. No copiar V1 automáticamente. No publicar secretos ni datos de conectividad en ningún repositorio o log. No usar VPS hasta autorización correspondiente.
 
-H1.2: Account/Project, almacenamiento SQLite y casos de uso internos. No adelantar autenticación, medios, recetas, jobs ni integraciones. Mantener el código pequeño y los contratos independientes de proveedores.
+H1.3: Account/Project y autoridad Job/Attempt sobre SQLite; worker sintético interno. No adelantar autenticación, medios, recetas, Engine ni ejecución distribuida. Mantener el código pequeño y los contratos independientes de proveedores.
