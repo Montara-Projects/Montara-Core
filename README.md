@@ -1,7 +1,7 @@
 # Montara-Core
 MONTARA CORE V2 — núcleo independiente.
 
-H1.3: proyectos y autoridad local de trabajos e intentos sobre SQLite. No es un producto listo para exposición pública.
+H1.4: núcleo integrado, proyectos y autoridad de ejecución sintética sobre SQLite. No es un producto listo para exposición pública.
 
 ## Desarrollo
 Objetivo inicial: Python 3.11, por compatibilidad candidata del Engine estudiado en [BRAIN #3](https://github.com/Montara-Projects/MONTARA-BRAIN/issues/3). Runtime sin dependencias de terceros; backend de build fijado en pyproject.toml. H1.1 no incluye Engine.
@@ -36,9 +36,9 @@ python -m unittest discover -s tests -v
 CI construye un wheel y ejecuta tests desde una instalación limpia fuera del checkout. Pruebas positivas de arranque/HTTP, negativas de configuración/bind y reglas de dependencias estáticas. No equivalen a instalación VPS ni H2.
 
 ## Arquitectura
-`application` expone el caso de uso health sin I/O; `api` traduce a HTTP; `bootstrap` valida configuración y ensambla; `__main__` es entrypoint. `domain` contiene Account/Project y reglas puras; `application` contiene los casos de uso y el port ProjectStore; `adapters` implementa SQLite; `bootstrap.projects.build_project_service(config)` ensambla el servicio. Provisionar Account es operación interna, no login. Actor explícito debe proceder de un llamante confiable: no hay autenticación real ni rutas HTTP de proyectos. Los tests crean cuentas sintéticas. Consultas de proyectos siempre acotadas al owner; acceso cruzado y ausencia tienen mismo error. Imports internos absolutos; reglas AST comprobadas en tests. No SDK de proveedor, OIDC, medios, recetas, Engine, Mixer, Companion, scheduler distribuido ni cloud en H1.3. No se reutiliza código V1.
+`application` expone el caso de uso health sin I/O; `api` traduce a HTTP; `bootstrap` valida configuración y ensambla; `__main__` es entrypoint. `domain` contiene Account/Project y reglas puras; `application` contiene los casos de uso y el port ProjectStore; `adapters` implementa SQLite; `bootstrap.projects.build_project_service(config)` ensambla el servicio. Provisionar Account es operación interna, no login. Actor explícito debe proceder de un llamante confiable: no hay autenticación real ni rutas HTTP de proyectos. Los tests crean cuentas sintéticas. Consultas de proyectos siempre acotadas al owner; acceso cruzado y ausencia tienen mismo error. Imports internos absolutos; reglas AST comprobadas en tests. No SDK de proveedor, OIDC, medios, recetas, Engine, Mixer, Companion, scheduler distribuido ni cloud en H1.4. No se reutiliza código V1.
 
-Coordinación: [BRAIN](https://github.com/Montara-Projects/MONTARA-BRAIN), [protocolo](https://github.com/Montara-Projects/MONTARA-BRAIN/blob/main/AGENTS.md), [encargo H1.3 #13](https://github.com/Montara-Projects/MONTARA-BRAIN/issues/13).
+Coordinación: [BRAIN](https://github.com/Montara-Projects/MONTARA-BRAIN), [protocolo](https://github.com/Montara-Projects/MONTARA-BRAIN/blob/main/AGENTS.md), [encargo H1.4 #15](https://github.com/Montara-Projects/MONTARA-BRAIN/issues/15).
 
 ## Autoridad mínima H1.3
 
@@ -52,3 +52,19 @@ Coordinación: [BRAIN](https://github.com/Montara-Projects/MONTARA-BRAIN), [prot
 - `application.synthetic_worker.run_once(service)` procesa un trabajo como máximo con resultado determinista; no toca archivos ni ejecuta Engine. Puede invocarse en tests o por un llamante interno.
 
 Migración canónica v1→v2 en una única transacción BEGIN IMMEDIATE: validar origen, crear jobs/attempts/índices, validar destino, preservar proyectos y hacer commit; rollback ante error. Un fichero nuevo pasa por ambas migraciones. Se mantiene rechazo de esquemas no canónicos. No downgrade automático.
+
+## Integración H1.4: API v0 interna de desarrollo
+
+`bootstrap.core.build_core(config)` compone ProjectService y JobService sobre el mismo adaptador SQLite inicializado una sola vez. Los helpers de H1.2/H1.3 delegan en esta composición. Los casos de uso y las transacciones conservan la autoridad existente: no hay segunda base, copia de estado, ni nueva migración.
+
+El contrato es **Python interno**, para código confiable; no es un API HTTP ni un contrato público definitivo. El único endpoint sigue siendo GET /health en loopback, liveness del proceso. No se añade login de prueba ni se aceptan IDs de actor por HTTP. La provisión interna de cuentas solo se usa con fixtures en el recorrido; nunca equivale a autenticación.
+
+Para reproducir el smoke desde el entorno donde se instaló el paquete, ejecutar desde un directorio externo al checkout:
+
+```sh
+python -I -m unittest discover -s /path/to/checkout/tests -p test_core_integration.py -v
+```
+
+El smoke usa directorios y SQLite temporales, configuración TOML explícita, y procesos Python aislados separados para crear, ejecutar, consultar tras cierre y recuperar un claim perdido. No requiere permisos administrativos ni datos reales.
+
+Ver [contrato de ejecución H1.4 y prerrequisitos H2](docs/execution-contract-v0.md). H1.4 no acredita el primer MP4 ni autenticación, release declarativo o instalación real en el VPS.
