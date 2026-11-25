@@ -4,7 +4,9 @@ from pathlib import Path
 import sys
 
 from montara_core.api.http import create_server
+from montara_core.application.ports import StorageError
 from montara_core.bootstrap.config import ConfigError, load_config
+from montara_core.bootstrap.projects import build_project_service
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -20,6 +22,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.check_config:
         print("Configuration valid")
         return 0
+    if config.sqlite_path is not None:
+        try:
+            build_project_service(config)
+        except StorageError as exc:
+            print(f"Storage error: {exc}", file=sys.stderr)
+            return 1
     try:
         server = create_server(config.port)
     except OSError:

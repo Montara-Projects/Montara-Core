@@ -1,0 +1,16 @@
+"""Persistence boundary for the H1.2 use cases."""
+from typing import Protocol
+
+from montara_core.domain.projects import Account, Project
+
+
+class StorageError(RuntimeError):
+    """Persistence operation failed; no underlying paths in the message."""
+
+
+class ProjectStore(Protocol):
+    def add_account(self, account: Account) -> None: ...
+    def account_exists(self, account_id: str) -> bool: ...
+    def add_project(self, project: Project) -> None: ...
+    def find_project(self, owner_id: str, project_id: str) -> Project | None: ...
+    def list_projects(self, owner_id: str) -> list[Project]: ...
