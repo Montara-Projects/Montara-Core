@@ -1,0 +1,27 @@
+name: H1.1 Linux package smoke
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  package-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build wheel
+        run: python -m pip wheel --no-deps --wheel-dir "$RUNNER_TEMP/wheels" .
+      - name: Install in clean environment and test outside checkout
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/core-venv"
+          "$RUNNER_TEMP/core-venv/bin/python" -m pip install --no-index --no-deps "$RUNNER_TEMP"/wheels/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/core-venv/bin/python" -m montara_core --check-config --config "$GITHUB_WORKSPACE/config.example.toml"
+          "$RUNNER_TEMP/core-venv/bin/python" -m unittest discover -s "$GITHUB_WORKSPACE/tests" -v
