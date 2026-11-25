@@ -52,6 +52,7 @@ class SQLiteProjectStore:
             connection.execute("BEGIN IMMEDIATE")
             version = connection.execute("PRAGMA user_version").fetchone()[0]
             if version == SCHEMA_VERSION:
+                self._validate_schema(connection)
                 return
             if version != 0:
                 raise StorageError("unsupported database schema version")
@@ -63,6 +64,20 @@ class SQLiteProjectStore:
             for statement in _MIGRATION_1:
                 connection.execute(statement)
             connection.execute("PRAGMA user_version = 1")
+            self._validate_schema(connection)
+
+    @staticmethod
+    def _validate_schema(connection: sqlite3.Connection) -> None:
+        # This Core-owned database has one canonical v1 migration. Compare
+        # the stored DDL, not just user_version or the presence of tables.
+        # This verifies PK/FK/CHECK constraints and the index, and refuses
+        # noncanonical schemas rather than attempting a repair. SQLite's
+        # automatically generated internal objects are intentionally excluded.
+        actual = connection.execute(
+            "SELECT sql FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'"
+        ).fetchall()
+        if set(actual) != {(statement,) for statement in _MIGRATION_1}:
+            raise StorageError("incompatible database schema")
 
     def add_account(self, account: Account) -> None:
         with self._connection() as connection:

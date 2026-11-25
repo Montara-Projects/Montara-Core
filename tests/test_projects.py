@@ -2,9 +2,12 @@ import contextlib
 import io
 from pathlib import Path
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import unittest
 from uuid import uuid4
+from unittest.mock import patch
 
 from montara_core.adapters.sqlite_projects import SQLiteProjectStore
 from montara_core.application.ports import StorageError
@@ -138,3 +141,89 @@ class ProjectTests(unittest.TestCase):
             config_file.write_text(f"[storage]\nsqlite_path = {value}\n", encoding="utf-8")
             with self.subTest(value=value), self.assertRaises(ConfigError):
                 load_config(config_file)
+
+    def _assert_incompatible_unchanged(self, path):
+        before = path.read_bytes()
+        with self.assertRaisesRegex(StorageError, "^incompatible database schema$"):
+            SQLiteProjectStore(path)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_empty_database_marked_v1_rejected_without_mutation(self):
+        other = Path(self.tmp.name) / "empty-v1.sqlite"
+        connection = sqlite3.connect(other)
+        try:
+            connection.execute("PRAGMA user_version = 1")
+            connection.commit()
+        finally:
+            connection.close()
+        self._assert_incompatible_unchanged(other)
+
+    def test_v1_without_owner_fk_rejected_without_mutation(self):
+        other = Path(self.tmp.name) / "no-fk.sqlite"
+        connection = sqlite3.connect(other)
+        try:
+            # Same columns, PKs, checks and index as v1; only the owner FK
+            # is missing. PRAGMA foreign_keys=ON cannot restore it.
+            connection.execute("""CREATE TABLE accounts (
+        id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36)
+    )""")
+            connection.execute("""CREATE TABLE projects (
+        id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+        owner_id TEXT NOT NULL,
+        name TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 120 AND name = trim(name))
+    )""")
+            connection.execute("CREATE INDEX projects_owner_id_idx ON projects(owner_id, id)")
+            connection.execute("PRAGMA user_version = 1")
+            connection.commit()
+        finally:
+            connection.close()
+        self._assert_incompatible_unchanged(other)
+
+    def test_v1_missing_index_rejected_without_repair(self):
+        original = self.service.create_project(self.a.id, "preserve me")
+        connection = sqlite3.connect(self.path)
+        try:
+            connection.execute("DROP INDEX projects_owner_id_idx")
+            connection.commit()
+        finally:
+            connection.close()
+        self._assert_incompatible_unchanged(self.path)
+        connection = sqlite3.connect(self.path)
+        try:
+            self.assertEqual(connection.execute(
+                "SELECT name FROM projects WHERE id = ?", (original.id,)
+            ).fetchone(), ("preserve me",))
+            self.assertEqual(connection.execute(
+                "SELECT name FROM sqlite_schema WHERE name = 'projects_owner_id_idx'"
+            ).fetchall(), [])
+        finally:
+            connection.close()
+
+    def test_cli_rejects_incompatible_v1_before_bind(self):
+        other = Path(self.tmp.name) / "cli-v1.sqlite"
+        connection = sqlite3.connect(other)
+        try:
+            connection.execute("PRAGMA user_version = 1")
+            connection.commit()
+        finally:
+            connection.close()
+        before = other.read_bytes()
+        config = Path(self.tmp.name) / "cli.toml"
+        config.write_text(
+            f'[http]\nport = 0\n[storage]\nsqlite_path = "{other.as_posix()}"\n',
+            encoding="utf-8",
+        )
+        with patch("montara_core.bootstrap.main.create_server") as bind:
+            with contextlib.redirect_stderr(io.StringIO()) as error:
+                self.assertEqual(main(["--config", str(config)]), 1)
+            bind.assert_not_called()
+            self.assertIn("Storage error: incompatible database schema", error.getvalue())
+        result = subprocess.run(
+            [sys.executable, "-m", "montara_core", "--config", str(config)],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("Storage error: incompatible database schema", result.stderr)
+        self.assertNotIn(str(other), result.stderr)
+        self.assertEqual(other.read_bytes(), before)
