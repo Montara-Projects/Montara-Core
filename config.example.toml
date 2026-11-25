@@ -1,2 +1,6 @@
 [http]
 port = 8080
+
+# H1.2: optional explicit local DB path in an existing private directory.
+# [storage]
+# sqlite_path = "/path/to/private/core.sqlite"
