@@ -1,7 +1,7 @@
 # Montara-Core
 MONTARA CORE V2 — núcleo independiente.
 
-H1.4: núcleo integrado, proyectos y autoridad de ejecución sintética sobre SQLite. No es un producto listo para exposición pública.
+H2.1: núcleo integrado, originales y recetas inmutables, autoridad Job/Task/Attempt sobre SQLite. No es un producto listo para exposición pública.
 
 ## Desarrollo
 Objetivo inicial: Python 3.11, por compatibilidad candidata del Engine estudiado en [BRAIN #3](https://github.com/Montara-Projects/MONTARA-BRAIN/issues/3). Runtime sin dependencias de terceros; backend de build fijado en pyproject.toml. H1.1 no incluye Engine.
@@ -27,7 +27,7 @@ H1.2 añade opcionalmente `[storage]` con `sqlite_path` absoluto y directorio pa
 sqlite_path = "/path/to/private/core.sqlite"
 ```
 
-Al arrancar con storage configurado se inicializa/verifica la versión SQLite. `PRAGMA user_version=2`, claves foráneas por conexión, transacciones y conexiones cortas; se rechazan versiones desconocidas o bases no vacías sin versión. No reutilizar bases V1.
+Al arrancar con storage configurado se inicializa/verifica la versión SQLite. `PRAGMA user_version=3`, claves foráneas por conexión, transacciones y conexiones cortas; se rechazan versiones desconocidas o bases no vacías sin versión. No reutilizar bases V1.
 
 ## Pruebas
 ```sh
@@ -68,3 +68,20 @@ python -I -m unittest discover -s /path/to/checkout/tests -p test_core_integrati
 El smoke usa directorios y SQLite temporales, configuración TOML explícita, y procesos Python aislados separados para crear, ejecutar, consultar tras cierre y recuperar un claim perdido. No requiere permisos administrativos ni datos reales.
 
 Ver [contrato de ejecución H1.4 y prerrequisitos H2](docs/execution-contract-v0.md). H1.4 no acredita el primer MP4 ni autenticación, release declarativo o instalación real en el VPS.
+
+## H2.1: originales locales y ejecución privada
+
+Configurar opcionalmente los dos directorios existentes y privados (separados de SQLite y entre sí):
+```toml
+[storage]
+sqlite_path = "/path/to/core.sqlite"
+media_root = "/path/to/originals"
+workspace_root = "/path/to/attempts"
+```
+El operador de confianza coloca las fuentes autorizadas en media_root/<project UUID>/...; la API interna recibe locators relativos a ese proyecto, nunca rutas arbitrarias. No hay upload, transferencia de originales ni borrado. Las raíces deben estar bajo control exclusivo del operador; no son una sandbox para usuarios locales con escritura directa.
+
+`core.media.register_original(actor, project, kind, locator)` crea Asset, Representation original v1 y MediaLocation con SHA256/tamaño verificados. `revise_original(actor, asset, expected_revision, locator)` crea revisión distinta mediante CAS; `add_location` añade una copia de los mismos bytes. `save_recipe(actor, project, expected_revision, master, shots, profile)` crea RecipeRevision inmutable, con originales vigentes autorizados, master audio y cortes ordenados en ms, perfil inicial 1080p30 H264/AAC MP4. No se inspeccionan codecs/duración aquí; Engine/QA comprobarán el fixture y contenido.
+
+`core.jobs.create_job(actor, project, key, recipe_id=revision.id)` crea un Job y una Task export secuencial (una etapa de autoridad, Engine orquesta sus etapas internas); el snapshot es la revisión persistida. Clave repetida con otra receta es conflicto; nuevas solicitudes requieren última revisión y originales vigentes. Un job ya creado mantiene su snapshot aunque haya revisión nueva. Consulta owner-scoped mediante get_task(actor, job_id). Claim emite AttemptRef con task_id, generación y UUID; `core.media.prepare_execution(ref)` copia y verifica cada original a workspace exclusivo del intento y devuelve ExecutionSpec. No cambia la receta ni sustituye bytes; si ninguna copia coincide falla. Worker sintético no reclama export. Export no puede finalizar como success mediante el resultado sintético: publicación real verificada pendiente de siguiente integración. No hay Engine real ni auth en este corte.
+
+Migración v2→v3 transaccional conserva jobs, resultados e intentos H1 y crea una Task synthetic por Job previo. Compatibilidad H1: referencias de intento sin task_id solo válidas para synthetic, con UUID/generación exactos. Nuevas referencias incluyen task_id. Los estados Task/Job se actualizan juntos (una Task, agregación identidad). Sin scheduler paralelo. Ver [contrato Engine H2.1](docs/engine-contract-h2-1.md).
