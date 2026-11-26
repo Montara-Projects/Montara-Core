@@ -1,0 +1,74 @@
+[
+  {
+    "phase": "fixture_generation",
+    "ok": true,
+    "wall_s": 0.009,
+    "cpu_user_s": 0.004,
+    "cpu_system_s": 0.007,
+    "cgroup_sample_peak_bytes": 2565132288,
+    "process_tree_rss_sample_peak_bytes": 21626880,
+    "state_before_bytes": 2839264,
+    "state_after_bytes": 2839264,
+    "state_sample_peak_bytes": 2839264
+  },
+  {
+    "phase": "recipe_and_staging",
+    "ok": true,
+    "wall_s": 0.156,
+    "cpu_user_s": 0.023,
+    "cpu_system_s": 0.057,
+    "cgroup_sample_peak_bytes": 2565828608,
+    "process_tree_rss_sample_peak_bytes": 22544384,
+    "state_before_bytes": 2839264,
+    "state_after_bytes": 4244628,
+    "state_sample_peak_bytes": 4244628
+  },
+  {
+    "phase": "engine_real",
+    "ok": true,
+    "wall_s": 45.583,
+    "cpu_user_s": 92.777,
+    "cpu_system_s": 19.999,
+    "cgroup_sample_peak_bytes": 3439251456,
+    "process_tree_rss_sample_peak_bytes": 1032028160,
+    "state_before_bytes": 4244628,
+    "state_after_bytes": 4576881,
+    "state_sample_peak_bytes": 4915544
+  },
+  {
+    "phase": "candidate_quality",
+    "ok": true,
+    "wall_s": 5.272,
+    "cpu_user_s": 4.941,
+    "cpu_system_s": 3.872,
+    "cgroup_sample_peak_bytes": 2643054592,
+    "process_tree_rss_sample_peak_bytes": 139866112,
+    "state_before_bytes": 4576881,
+    "state_after_bytes": 4576881,
+    "state_sample_peak_bytes": 4576881
+  },
+  {
+    "phase": "publication_recovery",
+    "ok": true,
+    "wall_s": 0.118,
+    "cpu_user_s": 0.023,
+    "cpu_system_s": 0.021,
+    "cgroup_sample_peak_bytes": 2568683520,
+    "process_tree_rss_sample_peak_bytes": 24694784,
+    "state_before_bytes": 4576881,
+    "state_after_bytes": 4856693,
+    "state_sample_peak_bytes": 4856693
+  },
+  {
+    "phase": "reopen_separate_process",
+    "ok": true,
+    "wall_s": 1.306,
+    "cpu_user_s": 1.842,
+    "cpu_system_s": 0.812,
+    "cgroup_sample_peak_bytes": 2643505152,
+    "process_tree_rss_sample_peak_bytes": 139862016,
+    "state_before_bytes": 4856693,
+    "state_after_bytes": 4856693,
+    "state_sample_peak_bytes": 4856693
+  }
+]
