@@ -5,6 +5,7 @@ from uuid import uuid4
 from montara_core.adapters.sqlite_db import SQLiteDatabase
 from montara_core.adapters.sqlite_media import SQLiteMediaStore
 from montara_core.application.ports import StorageError
+from montara_core.domain.execution import canonical_json
 from montara_core.domain.jobs import AttemptRef, Job, JobNotFound, JobState, Task, TransitionError
 from montara_core.domain.projects import ProjectNotFound
 
@@ -91,10 +92,15 @@ class SQLiteJobStore(SQLiteDatabase):
                 "INSERT INTO jobs(id, project_id, request_key, state, generation) "
                 "VALUES (?, ?, ?, 'queued', 0)", (job_id, project, key),
             )
+            task_id = str(uuid4())
             connection.execute(
                 "INSERT INTO tasks(id, job_id, kind, recipe_id, state) VALUES (?, ?, ?, ?, 'queued')",
-                (str(uuid4()), job_id, "export" if recipe_id is not None else "synthetic", recipe_id),
+                (task_id, job_id, "export" if recipe_id is not None else "synthetic", recipe_id),
             )
+            if recipe_id is not None:
+                snapshot = SQLiteMediaStore._snapshot_document(connection, SQLiteMediaStore._recipe(latest))
+                connection.execute("INSERT INTO export_snapshots VALUES (?, ?)",
+                                   (task_id, canonical_json(snapshot)))
             return self._read(connection, job_id, actor)
 
     def get(self, actor: str, job_id: str) -> Job:

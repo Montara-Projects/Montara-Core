@@ -1,11 +1,12 @@
-name: H2 real Engine candidate
+name: H2 real Engine and publication
 on:
   pull_request:
     branches: [main]
     paths:
-      - 'src/montara_core/adapters/zucker_engine.py'
+      - 'src/montara_core/**'
       - 'tests/engine_h2_smoke.py'
       - 'tests/test_zucker_engine.py'
+      - 'tests/test_publication.py'
       - '.github/workflows/engine-h2.yml'
 permissions:
   contents: read

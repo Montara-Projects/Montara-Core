@@ -8,7 +8,9 @@ from uuid import uuid4
 from montara_core.adapters.sqlite_db import SQLiteDatabase
 from montara_core.adapters.local_media import LocalMedia
 from montara_core.application.ports import StorageError
-from montara_core.domain.execution import ExecutionSpec, InputFile, OutputProfile, Shot
+from montara_core.domain.execution import (
+    ExecutionSpec, InputFile, OutputProfile, Shot, canonical_json, snapshot_document, snapshot_digest,
+)
 from montara_core.domain.jobs import AttemptRef, TransitionError
 from montara_core.domain.media import (
     Asset, MediaLocation, MediaNotFound, RecipeRevision, Representation,
@@ -202,11 +204,37 @@ class SQLiteMediaStore(SQLiteDatabase):
             raise TransitionError("inactive or invalid export attempt")
         return SQLiteMediaStore._recipe(row)
 
+    @staticmethod
+    def _snapshot_document(db, recipe):
+        rows = db.execute(
+            "SELECT r.id,r.sha256,r.size_bytes FROM recipe_inputs i "
+            "JOIN representations r ON r.id=i.representation_id "
+            "JOIN assets a ON a.id=r.asset_id WHERE i.recipe_id=? AND a.project_id=?",
+            (recipe.id, recipe.project_id),
+        ).fetchall()
+        expected = {recipe.master_representation_id, *(s.representation_id for s in recipe.shots)}
+        if {row[0] for row in rows} != expected:
+            raise StorageError("missing snapshot representations")
+        return snapshot_document(recipe.id, recipe.master_representation_id, recipe.shots,
+                                 recipe.profile, [{"representation_id": r[0], "sha256": r[1],
+                                                   "size_bytes": r[2]} for r in rows])
+
+    @staticmethod
+    def _snapshot(db, task_id, recipe):
+        row = db.execute("SELECT document FROM export_snapshots WHERE task_id=?", (task_id,)).fetchone()
+        if row is None:
+            raise TransitionError("legacy export has no pinned execution snapshot; create a new job")
+        document = SQLiteMediaStore._snapshot_document(db, recipe)
+        if canonical_json(document) != row[0]:
+            raise TransitionError("execution snapshot incompatible with current profile or inputs")
+        return document
+
     def prepare_execution(self, attempt: AttemptRef) -> ExecutionSpec:
         local = self._files()
         with self._connection() as db:
             recipe = self._active_recipe(db, attempt)
             rows = self._validated_recipe_locations(db, recipe)
+            document = self._snapshot(db, attempt.task_id, recipe)
         expected = {recipe.master_representation_id, *(s.representation_id for s in recipe.shots)}
         if {row[0] for row in rows} != expected:
             raise StorageError("missing authorized recipe inputs")
@@ -240,7 +268,7 @@ class SQLiteMediaStore(SQLiteDatabase):
                                  attempt.generation, recipe.id,
                                  tuple(staged[key] for key in sorted(staged)),
                                  recipe.master_representation_id, recipe.shots,
-                                 recipe.profile, workspace)
+                                 recipe.profile, workspace, snapshot_digest(document))
         except BaseException:
             shutil.rmtree(workspace)
             raise
