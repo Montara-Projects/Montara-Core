@@ -286,7 +286,7 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(run_once(jobs).id, job.id)
         self.assertEqual(build_job_service(config).get_job(self.owner, job.id).state, JobState.SUCCEEDED)
         with SQLiteDatabase(self.path)._connection() as db:
-            self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (2,))
+            self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (3,))
             self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
 
     def test_invalid_source_rejected_unchanged(self):

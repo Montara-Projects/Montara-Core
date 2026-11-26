@@ -1,6 +1,6 @@
 """Trusted internal job and worker operations; no public authentication."""
 from montara_core.application.job_ports import JobStore
-from montara_core.domain.jobs import AttemptRef, Job, validate_key, validate_result
+from montara_core.domain.jobs import AttemptRef, Job, Task, validate_key, validate_result
 from montara_core.domain.projects import InvalidValue, validate_id
 
 
@@ -8,20 +8,27 @@ class JobService:
     def __init__(self, store: JobStore) -> None:
         self._store = store
 
-    def create_job(self, actor: str, project: str, key: str) -> Job:
+    def create_job(self, actor: str, project: str, key: str, recipe_id: str | None = None) -> Job:
         validate_id(actor)
         validate_id(project)
         validate_key(key)
-        return self._store.create(actor, project, key)
+        if recipe_id is not None:
+            validate_id(recipe_id)
+        return self._store.create(actor, project, key, recipe_id)
 
     def get_job(self, actor: str, job_id: str) -> Job:
         validate_id(actor)
         validate_id(job_id)
         return self._store.get(actor, job_id)
 
-    def claim(self) -> AttemptRef | None:
+    def get_task(self, actor: str, job_id: str) -> Task:
+        validate_id(actor)
+        validate_id(job_id)
+        return self._store.get_task(actor, job_id)
+
+    def claim(self, synthetic_only: bool = False) -> AttemptRef | None:
         """Trusted worker only; at most one running job globally."""
-        return self._store.claim()
+        return self._store.claim(synthetic_only)
 
     def running_attempt(self) -> AttemptRef | None:
         """Trusted recovery lookup, including a claim whose response was lost."""
