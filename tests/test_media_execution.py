@@ -1,6 +1,7 @@
 """H2.1 contract regressions; byte fixtures, not audiovisual quality tests."""
 from dataclasses import FrozenInstanceError
 import hashlib
+import json
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -15,7 +16,7 @@ from montara_core.bootstrap.config import Config, ConfigError, load_config
 from montara_core.bootstrap.core import build_core
 from montara_core.domain.execution import OutputProfile, Shot
 from montara_core.domain.jobs import AttemptRef, JobNotFound, JobState, TransitionError
-from montara_core.domain.media import MediaNotFound
+from montara_core.domain.media import MediaNotFound, validate_recipe
 from montara_core.domain.projects import InvalidValue, ProjectNotFound
 
 
@@ -241,6 +242,132 @@ class MediaExecutionTests(unittest.TestCase):
         without = build_core(Config(sqlite_path=self.config.sqlite_path))
         with self.assertRaises(StorageError):
             without.media.register_original(self.a, self.pa, "video", "a.mp4")
+
+
+    def test_nominal_format_eligibility_and_no_renaming_fallback(self):
+        # Registration remains a content-addressed catalog operation. Only
+        # export eligibility is narrowed, not the historical representation.
+        (self.media / self.pa / "camera.mkv").write_bytes(b"mkv-camera")
+        _, camera, _ = self.core.media.register_original(self.a, self.pa, "video", "camera.mkv")
+        (self.media / self.pa / "master.mp3").write_bytes(b"mp3-master")
+        _, master, _ = self.core.media.register_original(self.a, self.pa, "audio", "master.mp3")
+        with self.assertRaisesRegex(InvalidValue, "MP4/MOV"):
+            self.recipe(shots=(Shot(camera.id, 0, 1000),))
+        with self.assertRaisesRegex(InvalidValue, "WAV"):
+            self.core.media.save_recipe(self.a, self.pa, None, master.id, self.shots)
+        # Same exact representation, now with a nominally eligible copy.
+        # The extension is NOT a codec or stream verification.
+        (self.media / self.pa / "camera.MOV").write_bytes(b"mkv-camera")
+        self.core.media.add_location(self.a, camera.id, "camera.MOV")
+        recipe, _ = self.export(self.recipe(shots=(Shot(camera.id, 0, 1000),)))
+        ref = self.core.jobs.claim()
+        spec = self.core.media.prepare_execution(ref)
+        staged = next(item for item in spec.inputs if item.representation_id == camera.id)
+        self.assertEqual(staged.path.suffix.lower(), ".mov")
+        self.assertEqual(staged.sha256, camera.sha256)
+        self.assertEqual(spec.shots, recipe.shots)
+        self.core.jobs.recover(ref)
+        self.core.jobs.retry(self.a, ref)
+        (self.media / self.pa / "camera.MOV").write_bytes(b"bad")
+        retry = self.core.jobs.claim()
+        with self.assertRaises(StorageError):
+            self.core.media.prepare_execution(retry)
+        self.assertFalse((self.workspace / retry.id).exists())
+        # Intact .mkv copy must not be renamed/fallback-selected.
+        self.assertEqual((self.media / self.pa / "camera.mkv").read_bytes(), b"mkv-camera")
+
+    def test_legacy_temporal_snapshot_read_and_replay_but_not_execute(self):
+        recipe, job = self.export()
+        # Construct the exact v3 shape the old API allowed: 2001ms endpoint.
+        # This fixture write is not a migration or an exposed mutation API.
+        previous_shots = json.dumps([{"representation_id": self.cam.id,
+                                      "start_ms": 0, "end_ms": 2001},
+                                     {"representation_id": self.cam2.id,
+                                      "start_ms": 3000, "end_ms": 6000}])
+        with SQLiteDatabase(self.config.sqlite_path)._connection() as db:
+            db.execute("UPDATE recipe_revisions SET shots_json=? WHERE id=?",
+                       (previous_shots, recipe.id))
+        reopened = build_core(self.config)
+        historical = reopened.media.get_recipe(self.a, recipe.id)
+        self.assertEqual(historical.shots[0].end_ms, 2001)
+        self.assertEqual(reopened.jobs.create_job(self.a, self.pa, "export", recipe.id), job)
+        with self.assertRaisesRegex(InvalidValue, "100 ms"):
+            reopened.jobs.create_job(self.a, self.pa, "new-incompatible", recipe.id)
+        ref = reopened.jobs.claim()
+        with self.assertRaisesRegex(InvalidValue, "100 ms"):
+            reopened.media.prepare_execution(ref)
+        self.assertFalse((self.workspace / ref.id).exists())
+        self.assertIsNone(reopened.jobs.get_job(self.a, job.id).result)
+        reopened.jobs.fail(ref)
+        corrected = reopened.media.save_recipe(self.a, self.pa, recipe.id,
+                                               self.master.id, self.shots)
+        new = reopened.jobs.create_job(self.a, self.pa, "explicit-correction", corrected.id)
+        self.assertNotEqual(new.id, job.id)
+        self.assertEqual(reopened.media.get_recipe(self.a, recipe.id), historical)
+        with SQLiteDatabase(self.config.sqlite_path)._connection() as db:
+            self.assertEqual(db.execute("SELECT shots_json FROM recipe_revisions WHERE id=?",
+                                       (recipe.id,)).fetchone(), (previous_shots,))
+            self.assertEqual(db.execute("SELECT count(*) FROM jobs").fetchone(), (2,))
+
+    def test_legacy_nominal_location_rejected_at_job_and_staging(self):
+        recipe, job = self.export()
+        # Old v3 allowed arbitrary suffixes. Keep the original identity and
+        # bytes, simulating historical catalog metadata, without renaming them.
+        (self.media / self.pa / "a.mp4").rename(self.media / self.pa / "a.mkv")
+        with SQLiteDatabase(self.config.sqlite_path)._connection() as db:
+            db.execute("UPDATE media_locations SET locator='a.mkv' WHERE id=?", (self.loc.id,))
+        reopened = build_core(self.config)
+        self.assertEqual(reopened.media.get_recipe(self.a, recipe.id), recipe)
+        self.assertEqual(reopened.jobs.create_job(self.a, self.pa, "export", recipe.id), job)
+        with self.assertRaisesRegex(InvalidValue, "MP4/MOV"):
+            reopened.jobs.create_job(self.a, self.pa, "new-incompatible", recipe.id)
+        ref = reopened.jobs.claim()
+        with self.assertRaisesRegex(InvalidValue, "MP4/MOV"):
+            reopened.media.prepare_execution(ref)
+        self.assertFalse((self.workspace / ref.id).exists())
+        self.assertEqual(reopened.jobs.get_task(self.a, job.id).recipe_id, recipe.id)
+
+    def test_reject_incompatible_recipe_before_persistence(self):
+        for shots in ((Shot(self.cam.id, 0, 2001),),
+                      (Shot(self.cam.id, 0, 21_600_000), Shot(self.cam2.id, 0, 100))):
+            with self.subTest(shots=shots), self.assertRaises(InvalidValue):
+                self.recipe(shots=shots)
+        self.assertEqual(self.recipe().revision, 1)
+
+
+class RecipeCapabilityTests(unittest.TestCase):
+    def setUp(self):
+        self.master = str(uuid4())
+        self.camera = str(uuid4())
+        self.profile = OutputProfile()
+
+    def check(self, shots):
+        validate_recipe(self.master, shots, self.profile)
+
+    def test_temporal_grid_and_duration_boundaries(self):
+        for shots in ((Shot(self.camera, 0, 100),),
+                      (Shot(self.camera, 86_399_900, 86_400_000),),
+                      (Shot(self.camera, 0, 21_600_000),),
+                      (Shot(self.camera, 0, 10_800_000),) * 2):
+            with self.subTest(shots=shots):
+                self.check(shots)
+        for shots in ((Shot(self.camera, 0, 2001),),
+                      (Shot(self.camera, 1, 100),),
+                      (Shot(self.camera, 0, 21_600_100),),
+                      (Shot(self.camera, 0, 21_600_000), Shot(self.camera, 0, 100)),
+                      (Shot(self.camera, 86_400_000, 86_400_100),)):
+            with self.subTest(shots=shots), self.assertRaises(InvalidValue):
+                self.check(shots)
+
+    def test_camera_and_shot_boundaries(self):
+        cameras = tuple(Shot(str(uuid4()), 0, 100) for _ in range(201))
+        self.check(cameras[:200])
+        with self.assertRaisesRegex(InvalidValue, "200 camera"):
+            self.check(cameras)
+        repeated = (Shot(self.camera, 0, 100),) * 1000
+        self.check(repeated)
+        with self.assertRaises(InvalidValue):
+            self.check(repeated + repeated[:1])
 
 
 class V3MigrationTests(unittest.TestCase):
