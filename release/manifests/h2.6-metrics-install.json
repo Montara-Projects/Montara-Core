@@ -1,0 +1,98 @@
+[
+  {
+    "cgroup_sample_peak_bytes": 573173760,
+    "child_maxrss_kib_cumulative": 180984,
+    "cpu_system_s": 37.134,
+    "cpu_user_s": 20.006,
+    "filesystem_used_delta_bytes": 543399936,
+    "measured_tree_after_bytes": null,
+    "measured_tree_before_bytes": null,
+    "ok": true,
+    "phase": "sources",
+    "wall_s": 36.283
+  },
+  {
+    "cgroup_sample_peak_bytes": 805220352,
+    "child_maxrss_kib_cumulative": 180984,
+    "cpu_system_s": 7.218,
+    "cpu_user_s": 11.339,
+    "filesystem_used_delta_bytes": 198938624,
+    "measured_tree_after_bytes": null,
+    "measured_tree_before_bytes": null,
+    "ok": true,
+    "phase": "python_bootstrap",
+    "wall_s": 19.029
+  },
+  {
+    "cgroup_sample_peak_bytes": 1347149824,
+    "child_maxrss_kib_cumulative": 180984,
+    "cpu_system_s": 31.686,
+    "cpu_user_s": 16.852,
+    "filesystem_used_delta_bytes": 489566208,
+    "measured_tree_after_bytes": null,
+    "measured_tree_before_bytes": null,
+    "ok": true,
+    "phase": "ffmpeg_local_closure",
+    "wall_s": 40.35
+  },
+  {
+    "cgroup_sample_peak_bytes": 1649295360,
+    "child_maxrss_kib_cumulative": 180984,
+    "cpu_system_s": 5.595,
+    "cpu_user_s": 15.168,
+    "filesystem_used_delta_bytes": 157671424,
+    "measured_tree_after_bytes": null,
+    "measured_tree_before_bytes": null,
+    "ok": true,
+    "phase": "python_wheel_closure",
+    "wall_s": 22.64
+  },
+  {
+    "cgroup_sample_peak_bytes": 1571094528,
+    "child_maxrss_kib_cumulative": 180984,
+    "cpu_system_s": 1.557,
+    "cpu_user_s": 4.856,
+    "filesystem_used_delta_bytes": 2691072,
+    "measured_tree_after_bytes": null,
+    "measured_tree_before_bytes": null,
+    "ok": true,
+    "phase": "build_core",
+    "wall_s": 6.117
+  },
+  {
+    "cgroup_sample_peak_bytes": 2037972992,
+    "child_maxrss_kib_cumulative": 180984,
+    "cpu_system_s": 8.624,
+    "cpu_user_s": 24.593,
+    "filesystem_used_delta_bytes": 426459136,
+    "measured_tree_after_bytes": null,
+    "measured_tree_before_bytes": null,
+    "ok": true,
+    "phase": "install_clean",
+    "wall_s": 40.715
+  },
+  {
+    "cgroup_sample_peak_bytes": 2861580288,
+    "child_maxrss_kib_cumulative": 449704,
+    "cpu_system_s": 19.402,
+    "cpu_user_s": 71.485,
+    "filesystem_used_delta_bytes": 3063808,
+    "measured_tree_after_bytes": 2878286,
+    "measured_tree_before_bytes": 0,
+    "ok": true,
+    "phase": "canonical_av",
+    "wall_s": 45.378
+  },
+  {
+    "cgroup_sample_peak_bytes": 2520137728,
+    "child_maxrss_kib_cumulative": 449704,
+    "cpu_system_s": 5.025,
+    "cpu_user_s": 30.286,
+    "filesystem_used_delta_bytes": 439025664,
+    "measured_tree_after_bytes": 2878286,
+    "measured_tree_before_bytes": 2878286,
+    "ok": true,
+    "phase": "reinstall_and_recovery",
+    "wall_s": 35.495
+  }
+]

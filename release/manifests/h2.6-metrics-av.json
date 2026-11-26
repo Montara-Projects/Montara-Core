@@ -1,0 +1,74 @@
+[
+  {
+    "phase": "fixture_generation",
+    "ok": true,
+    "wall_s": 4.305,
+    "cpu_user_s": 2.665,
+    "cpu_system_s": 2.123,
+    "cgroup_sample_peak_bytes": 2006724608,
+    "process_tree_rss_sample_peak_bytes": 87416832,
+    "state_before_bytes": 0,
+    "state_after_bytes": 705217,
+    "state_sample_peak_bytes": 705217
+  },
+  {
+    "phase": "recipe_and_staging",
+    "ok": true,
+    "wall_s": 0.146,
+    "cpu_user_s": 0.025,
+    "cpu_system_s": 0.047,
+    "cgroup_sample_peak_bytes": 1983410176,
+    "process_tree_rss_sample_peak_bytes": 22675456,
+    "state_before_bytes": 705217,
+    "state_after_bytes": 2266229,
+    "state_sample_peak_bytes": 2266229
+  },
+  {
+    "phase": "engine_real",
+    "ok": true,
+    "wall_s": 34.632,
+    "cpu_user_s": 62.402,
+    "cpu_system_s": 13.175,
+    "cgroup_sample_peak_bytes": 2861576192,
+    "process_tree_rss_sample_peak_bytes": 1037094912,
+    "state_before_bytes": 2266229,
+    "state_after_bytes": 2598474,
+    "state_sample_peak_bytes": 2937142
+  },
+  {
+    "phase": "candidate_quality",
+    "ok": true,
+    "wall_s": 4.681,
+    "cpu_user_s": 4.517,
+    "cpu_system_s": 3.208,
+    "cgroup_sample_peak_bytes": 2060726272,
+    "process_tree_rss_sample_peak_bytes": 139939840,
+    "state_before_bytes": 2598474,
+    "state_after_bytes": 2598474,
+    "state_sample_peak_bytes": 2598474
+  },
+  {
+    "phase": "publication_recovery",
+    "ok": true,
+    "wall_s": 0.081,
+    "cpu_user_s": 0.019,
+    "cpu_system_s": 0.024,
+    "cgroup_sample_peak_bytes": 1986097152,
+    "process_tree_rss_sample_peak_bytes": 25014272,
+    "state_before_bytes": 2598474,
+    "state_after_bytes": 2878286,
+    "state_sample_peak_bytes": 2878286
+  },
+  {
+    "phase": "reopen_separate_process",
+    "ok": true,
+    "wall_s": 1.21,
+    "cpu_user_s": 1.473,
+    "cpu_system_s": 0.553,
+    "cgroup_sample_peak_bytes": 2061246464,
+    "process_tree_rss_sample_peak_bytes": 140181504,
+    "state_before_bytes": 2878286,
+    "state_after_bytes": 2878286,
+    "state_sample_peak_bytes": 2878286
+  }
+]
