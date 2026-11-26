@@ -8,7 +8,7 @@ Type=exec
 User=montara-pilot-ingress
 Group=montara-pilot-ingress
 Environment=HOME=/nonexistent
-ExecStart=/opt/montara-pilot/control/cloudflared tunnel --no-autoupdate --protocol quic --metrics 127.0.0.1:20246 --loglevel error run --token-file /etc/montara-pilot-ingress/token
+ExecStart=/opt/montara-pilot/ingress/cloudflared tunnel --no-autoupdate --protocol quic --metrics 127.0.0.1:20246 --loglevel error run --token-file /etc/montara-pilot-ingress/token
 Restart=no
 KillMode=control-group
 SendSIGKILL=yes
@@ -17,7 +17,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
-InaccessiblePaths=/var/lib/montara-pilot /etc/montara-pilot /etc/montara-pilot-enrol
+InaccessiblePaths=/var/lib/montara-pilot /etc/montara-pilot -/etc/montara-pilot-enrol
 MemoryMax=512M
 TasksMax=128
 StandardOutput=null
