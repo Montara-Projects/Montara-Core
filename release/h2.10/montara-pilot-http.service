@@ -1,0 +1,21 @@
+[Unit]
+Description=Montara CORE V2 DEVELOPMENT HTTP
+After=network-online.target
+[Service]
+Type=exec
+User=montara-pilot
+Group=montara-pilot
+WorkingDirectory=/var/lib/montara-pilot
+Environment=HOME=/var/lib/montara-pilot/runtime-home
+Environment=PATH=/opt/montara-pilot/current/media-tools:/usr/bin:/bin
+ExecStart=/opt/montara-pilot/current/pilot-runtime/venv/bin/python -I -m montara_core --config /etc/montara-pilot/core.toml
+Restart=no
+KillMode=control-group
+SendSIGKILL=yes
+TimeoutStopSec=10s
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/montara-pilot
+UMask=0077
