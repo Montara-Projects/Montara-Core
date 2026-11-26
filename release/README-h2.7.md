@@ -24,3 +24,11 @@ Reutilizar el procedimiento de extracción local de FFmpeg/ffprobe 6.1.1 de H2.6
 ## Medición
 
 Mismo criterio de #25: wall monotónico, CPU de proceso y descendientes recolectados, RSS aproximado del árbol y memoria cgroup (incluye cache), muestreo 200ms, bytes lógicos del state y delta FS. No benchmark ni extrapolación a seis horas. Reportar fases de bootstrap, instalación, migración, OIDC, AV, reinstalación. Evidencia saneada, no publicar rutas de acceso, IDs de cuenta, credenciales ni logs crudos.
+
+### Contrato propuesto #28 (recibido durante #27)
+
+[Propuesta Archi](https://github.com/Montara-Projects/MONTARA-BRAIN/issues/28#issuecomment-7187900355), [ACK Efrain](https://github.com/Montara-Projects/MONTARA-BRAIN/issues/28#issuecomment-7187954888). Pendiente de implementación/CI de Archi y gate combinado posterior, no configuración válida del commit histórico de este release.
+
+- `[pilot]` opt-in junto a OIDC: allowed_subjects exactos del issuer (1–4, no email), renderer_root y engine_root absolutos canónicos, render_timeout_sec 30–300 (180 inicialmente).
+- `python -I -m montara_core --config FILE --worker-once`, exit 0 ejecutado/idle, 1 infraestructura, 2 config, 3 busy/intento pendiente, 4 fallo controlado, 5 publicación incierta; solo reconciliación explícita por --worker-recover o --worker-interrupt ATTEMPT_UUID después de confirmar que proceso y descendientes se detuvieron. Un único supervisor y flock, sin auto-restart tras fallo, cgroup KillMode=control-group, timeout externo superior al interno.
+- Mantener límites fijos del piloto propuesto (4 proyectos/owner, 8 jobs históricos/owner, un activo/owner, fixture 60s/512MiB y 2GiB libres antes de claim), sin promesa de capacidad universal; interfaz mínima y gate Chromium/IdP prueba/worker real de #28. No subir originales ni introducir servicio público antes de autorización FER.
