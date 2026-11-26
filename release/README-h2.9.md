@@ -23,6 +23,7 @@ Type=exec
 User=montara-pilot
 Group=montara-pilot
 WorkingDirectory=/opt/montara-pilot/current
+Environment=HOME=/var/lib/montara-pilot/runtime-home
 Environment=PATH=/opt/montara-pilot/current/media-tools:/usr/bin:/bin
 ExecStart=/opt/montara-pilot/current/venv/bin/python -I -m montara_core --config /etc/montara-pilot/core.toml
 Restart=no
@@ -44,6 +45,7 @@ Type=exec
 User=montara-pilot
 Group=montara-pilot
 WorkingDirectory=/opt/montara-pilot/current
+Environment=HOME=/var/lib/montara-pilot/runtime-home
 Environment=PATH=/opt/montara-pilot/current/media-tools:/usr/bin:/bin
 ExecStart=/opt/montara-pilot/current/venv/bin/python -I -m montara_core --config /etc/montara-pilot/core.toml --worker-once
 Restart=no
@@ -63,7 +65,7 @@ InaccessiblePaths=/etc/montara-pilot/client-secret
 UMask=0077
 ```
 
-No afirmar que estas unidades fueron instaladas/validadas. Usar start manual y comprobar salida del ciclo: 0 published/idle permite el siguiente ciclo explícito; 1–5/señal/timeout/otro exit detiene nuevos ciclos, cerrar admisión y reconciliar. No Restart=always, cron ni reintentos automáticos. Verificar límites reales, parada y espacio en el destino. Para medir parada explícita de descendientes: `pilot-stop-probe.sh`, operación root autorizada separadamente, unidad transitoria sintética (no tocar servicios reales); hijo setsid resiste TERM, se verifica cgroup común y límites, stop y escalado SIGKILL, ausencia de identidades vivas y cgroup vacío/eliminado, mismo lock libre. No requiere cambios en SentinelX, no se instala producto. No basta matar el padre. Guardar únicamente salida PASS/FAIL, no PIDs ni rutas.
+Crear runtime-home privado y escribible por el UID de servicio; reconstruir los wrappers FFmpeg con paths definitivos, no copiar venv, binarios ni wrappers que apunten al HOME temporal. No exportar LD_LIBRARY_PATH de QA al servicio. No afirmar que estas unidades fueron instaladas/validadas. Usar start manual y comprobar salida del ciclo: 0 published/idle permite el siguiente ciclo explícito; 1–5/señal/timeout/otro exit detiene nuevos ciclos, cerrar admisión y reconciliar. No Restart=always, cron ni reintentos automáticos. Verificar límites reales, parada y espacio en el destino. Para medir parada explícita de descendientes: `pilot-stop-probe.sh`, operación root autorizada separadamente, unidad transitoria sintética (no tocar servicios reales); hijo setsid resiste TERM, se verifica cgroup común y límites, stop y escalado SIGKILL, ausencia de identidades vivas y cgroup vacío/eliminado, mismo lock libre. No requiere cambios en SentinelX, no se instala producto. No basta matar el padre. Guardar únicamente salida PASS/FAIL, no PIDs ni rutas.
 
 Orden de mantenimiento: cerrar entrada proxy y admisión de ciclos; esperar finalización o detener toda la unidad worker; verificar cgroup vacío/eliminado y ausencia de descendientes (identidad PID/start ticks, no sólo flock); comprobar lock libre sin eliminarlo. Consultar estado durable. Recover UUID exacto tras quiescencia (sin Engine), verificar recibo y digest; si sigue activo y no recuperable decidir interrupt exacto, nunca encubrir commit ni auto-retry. Si recover falla, mantener cerrado. Sólo después parar HTTP, preparar nuevo slot y activar de forma atómica, verificar DB/recibos y volver a arrancar. Rollback de código sólo con evidencia de compatibilidad de schema y datos; no restaurar snapshot antiguo sobre escrituras. No GC de workspace activo ni artifacts.
 
@@ -89,3 +91,7 @@ Wall monotónico, CPU user/system y RSS máximo de hijo recolectado (no RSS agre
 - [Políticas OAuth, dominios autorizados y HTTPS](https://developers.google.com/identity/protocols/oauth2/policies).
 
 Se utilizará un dominio propio/autorizado; no asumir que un hostname temporal ajeno es elegible ni usar URI no HTTPS para el piloto real.
+
+### Incidencia QA y reejecución focalizada
+
+Primer intento: 100/100 suite instalada y apertura histórica v5 PASS; Chromium falló antes de render en la comprobación de bibliotecas de Playwright. Se conservan [métricas del primer intento](manifests/h2.9-first-attempt-metrics.json). Ajuste del harness: pasar LD_LIBRARY_PATH de las bibliotecas locales al proceso de Playwright (además del navegador) y verificar ldd sin dependencias ausentes; sin deshabilitar comprobaciones ni instalar globalmente. Fetch superficial por SHA exacto para evitar historial innecesario, conservando pin histórico. Para una reproducción nueva, ejecutar sin H2_REUSE_SUITE; la reejecución focalizada del mismo gate permite H2_REUSE_SUITE=1 sólo tras PASS de la suite sobre misma fuente y locks, no equivale a una suite nueva ni a prueba de bytes de wheel del primer intento (no retenido).
