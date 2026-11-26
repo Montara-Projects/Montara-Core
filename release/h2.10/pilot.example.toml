@@ -1,0 +1,29 @@
+# Plantilla propuesta, NO es TOML Core. Instanciar fuera del repositorio.
+# Sin valores reales, no se aplica ni crea recursos externos.
+format = 1
+environment = "DEVELOPMENT"
+public_origin = "https://montara.example.workers.dev"
+[ingress]
+adapter = "cloudflare-vpc-access"
+access_audience_file = "/etc/montara-pilot/access-aud"
+vpc_binding = "CORE"
+[identity]
+issuer = "https://accounts.google.com"
+authorization_endpoint = "https://accounts.google.com/o/oauth2/v2/auth"
+token_endpoint = "https://oauth2.googleapis.com/token"
+jwks_uri = "https://www.googleapis.com/oauth2/v3/certs"
+client_id_file = "/etc/montara-pilot/client-id"
+client_secret_file = "/etc/montara-pilot/client-secret"
+allowed_subjects_file = "/etc/montara-pilot/allowed-subjects"
+[storage]
+state_root = "/var/lib/montara-pilot"
+[release]
+slot = "/opt/montara-pilot/releases/c7e11118d2d1"
+[http]
+port = 8080
+[worker]
+render_timeout_sec = 180
+memory_max_bytes = 4294967296
+cpu_quota_percent = 200
+tasks_max = 256
+runtime_max_sec = 600
