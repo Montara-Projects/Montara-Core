@@ -2,7 +2,6 @@
 from dataclasses import asdict
 import json
 from pathlib import Path
-import re
 import shutil
 from uuid import uuid4
 
@@ -11,8 +10,11 @@ from montara_core.adapters.local_media import LocalMedia
 from montara_core.application.ports import StorageError
 from montara_core.domain.execution import ExecutionSpec, InputFile, OutputProfile, Shot
 from montara_core.domain.jobs import AttemptRef, TransitionError
-from montara_core.domain.media import Asset, MediaLocation, MediaNotFound, RecipeRevision, Representation
-from montara_core.domain.projects import ProjectNotFound
+from montara_core.domain.media import (
+    Asset, MediaLocation, MediaNotFound, RecipeRevision, Representation,
+    supports_export_location, validate_recipe,
+)
+from montara_core.domain.projects import InvalidValue, ProjectNotFound
 
 
 class SQLiteMediaStore(SQLiteDatabase):
@@ -109,6 +111,38 @@ class SQLiteMediaStore(SQLiteDatabase):
                               tuple(Shot(**shot) for shot in json.loads(row[5])),
                               OutputProfile(**json.loads(row[6])))
 
+    @staticmethod
+    def _require_nominal_location(db, representation, kind):
+        locations = db.execute(
+            "SELECT locator FROM media_locations WHERE representation_id=?", (representation,)
+        ).fetchall()
+        if not any(supports_export_location(kind, row[0]) for row in locations):
+            raise InvalidValue("H2 requires MP4/MOV camera and WAV master locations")
+
+    @staticmethod
+    def _validated_recipe_locations(db, recipe):
+        """Validate stored snapshot without changing it or selecting newer revisions."""
+        validate_recipe(recipe.master_representation_id, recipe.shots, recipe.profile)
+        expected = {s.representation_id: "video" for s in recipe.shots}
+        if recipe.master_representation_id in expected:
+            raise InvalidValue("master cannot be a camera")
+        expected[recipe.master_representation_id] = "audio"
+        rows = db.execute(
+            "SELECT r.id,r.sha256,r.size_bytes,l.locator,a.kind FROM recipe_inputs i "
+            "JOIN representations r ON r.id=i.representation_id "
+            "JOIN assets a ON a.id=r.asset_id "
+            "JOIN media_locations l ON l.representation_id=r.id "
+            "WHERE i.recipe_id=? AND a.project_id=? ORDER BY r.id,l.id",
+            (recipe.id, recipe.project_id),
+        ).fetchall()
+        if ({row[0] for row in rows} != set(expected)
+                or any(expected.get(row[0]) != row[4] for row in rows)):
+            raise StorageError("missing authorized recipe inputs")
+        compatible = [row[:4] for row in rows if supports_export_location(row[4], row[3])]
+        if {row[0] for row in compatible} != set(expected):
+            raise InvalidValue("H2 requires MP4/MOV camera and WAV master locations")
+        return compatible
+
     def save_recipe(self, actor, project, expected, master, shots, profile):
         with self._connection() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -133,6 +167,7 @@ class SQLiteMediaStore(SQLiteDatabase):
                     (rep.asset_id, rep.revision),
                 ).fetchone():
                     raise TransitionError("obsolete original revision")
+                self._require_nominal_location(db, identity, kind)
             recipe = RecipeRevision(str(uuid4()), project, latest[1] + 1 if latest else 1,
                                     expected, master, shots, profile)
             db.execute("INSERT INTO recipe_revisions VALUES (?,?,?,?,?,?,?)",
@@ -171,14 +206,7 @@ class SQLiteMediaStore(SQLiteDatabase):
         local = self._files()
         with self._connection() as db:
             recipe = self._active_recipe(db, attempt)
-            rows = db.execute(
-                "SELECT r.id,r.sha256,r.size_bytes,l.locator FROM recipe_inputs i "
-                "JOIN representations r ON r.id=i.representation_id "
-                "JOIN assets a ON a.id=r.asset_id "
-                "JOIN media_locations l ON l.representation_id=r.id "
-                "WHERE i.recipe_id=? AND a.project_id=? ORDER BY r.id,l.id",
-                (recipe.id, recipe.project_id),
-            ).fetchall()
+            rows = self._validated_recipe_locations(db, recipe)
         expected = {recipe.master_representation_id, *(s.representation_id for s in recipe.shots)}
         if {row[0] for row in rows} != expected:
             raise StorageError("missing authorized recipe inputs")
@@ -192,9 +220,9 @@ class SQLiteMediaStore(SQLiteDatabase):
             for identity, digest, size, locator in rows:
                 if identity in staged:
                     continue
+                # Retain the source's nominal suffix; only compatible locations
+                # passed validation. Never rename unsupported formats as MP4/WAV.
                 suffix = Path(locator).suffix
-                if not re.fullmatch(r"\.[A-Za-z0-9]{1,10}", suffix):
-                    suffix = ".bin"
                 target = workspace / (identity + suffix)
                 try:
                     verified = local.read(recipe.project_id, locator, target)
