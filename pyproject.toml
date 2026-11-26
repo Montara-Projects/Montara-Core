@@ -10,5 +10,8 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
 
+[project.optional-dependencies]
+oidc = ["PyJWT[crypto]==2.15.1"]
+
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from montara_core.application.ports import StorageError
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _MIGRATION_1 = (
     """CREATE TABLE accounts (
@@ -127,6 +127,18 @@ _PUBLICATION_DDL = (
 _SCHEMA_4 = _SCHEMA_3 + _PUBLICATION_DDL
 
 
+_IDENTITY_DDL = (
+    """CREATE TABLE oidc_identities (
+        issuer TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        account_id TEXT NOT NULL REFERENCES accounts(id),
+        PRIMARY KEY(issuer, subject),
+        UNIQUE(account_id)
+    )""",
+)
+_SCHEMA_5 = _SCHEMA_4 + _IDENTITY_DDL
+
+
 class SQLiteDatabase:
     def __init__(self, path: Path) -> None:
         self._path = Path(path)
@@ -211,8 +223,19 @@ class SQLiteDatabase:
                 self._validate_schema(connection, _SCHEMA_4)
                 if connection.execute("PRAGMA foreign_key_check").fetchone():
                     raise StorageError("invalid foreign keys in migrated database")
-            elif version == SCHEMA_VERSION:
+                version = 4
+            if version == 4:
                 self._validate_schema(connection, _SCHEMA_4)
+                if connection.execute("PRAGMA foreign_key_check").fetchone():
+                    raise StorageError("invalid foreign keys in source database")
+                for statement in _IDENTITY_DDL:
+                    connection.execute(statement)
+                connection.execute("PRAGMA user_version = 5")
+                self._validate_schema(connection, _SCHEMA_5)
+                if connection.execute("PRAGMA foreign_key_check").fetchone():
+                    raise StorageError("invalid foreign keys in migrated database")
+            elif version == SCHEMA_VERSION:
+                self._validate_schema(connection, _SCHEMA_5)
             else:
                 raise StorageError("unsupported database schema version")
 

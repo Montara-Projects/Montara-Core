@@ -2,6 +2,8 @@
 from dataclasses import dataclass
 from pathlib import Path
 import tomllib
+from urllib.parse import urlsplit
+from montara_core.application.identity import OIDCSettings
 
 
 class ConfigError(ValueError):
@@ -15,6 +17,7 @@ class Config:
     media_root: Path | None = None
     workspace_root: Path | None = None
     artifact_root: Path | None = None
+    oidc: OIDCSettings | None = None
 
 
 def load_config(path: Path | None = None) -> Config:
@@ -25,7 +28,7 @@ def load_config(path: Path | None = None) -> Config:
             data = tomllib.load(stream)
     except (OSError, ValueError) as exc:
         raise ConfigError("configuration is unreadable or invalid TOML") from exc
-    if set(data) - {"http", "storage"}:
+    if set(data) - {"http", "storage", "oidc"}:
         raise ConfigError("unknown configuration section")
     http = data.get("http", {})
     if not isinstance(http, dict) or set(http) - {"port"}:
@@ -58,8 +61,47 @@ def load_config(path: Path | None = None) -> Config:
                 raise ConfigError("artifact_root requires media and workspace roots")
             artifact_root = _root(storage["artifact_root"])
             validate_artifact_root(sqlite_path, media_root, workspace_root, artifact_root)
+    oidc = None
+    if "oidc" in data:
+        if not all((sqlite_path, media_root, workspace_root, artifact_root)):
+            raise ConfigError("OIDC requires configured database and all private roots")
+        oidc = _oidc(data["oidc"])
     return Config(port=port, sqlite_path=sqlite_path, media_root=media_root,
-                  workspace_root=workspace_root, artifact_root=artifact_root)
+                  workspace_root=workspace_root, artifact_root=artifact_root, oidc=oidc)
+
+
+def _https(value, origin=False):
+    if (not isinstance(value, str) or len(value) > 2048 or not value
+            or any(ord(c) < 33 or ord(c) > 126 for c in value) or "\\" in value):
+        raise ConfigError("invalid OIDC HTTPS URL")
+    try:
+        parsed = urlsplit(value)
+        if (parsed.scheme != "https" or not parsed.hostname or parsed.username is not None
+                or parsed.password is not None or parsed.query or parsed.fragment
+                or (origin and (parsed.path or value != "https://" + parsed.netloc))):
+            raise ConfigError("invalid OIDC HTTPS URL")
+        _ = parsed.port
+    except ValueError:
+        raise ConfigError("invalid OIDC HTTPS URL") from None
+    return value
+
+
+def _oidc(data):
+    keys = {"issuer", "authorization_endpoint", "token_endpoint", "jwks_uri",
+            "client_id", "client_secret_file", "public_origin"}
+    if not isinstance(data, dict) or set(data) != keys:
+        raise ConfigError("OIDC requires explicit issuer, endpoints, client and public origin")
+    client = data["client_id"]
+    if (not isinstance(client, str) or not client or len(client) > 512
+            or any(ord(ch) < 33 or ord(ch) > 126 for ch in client)):
+        raise ConfigError("invalid OIDC client ID")
+    secret = data["client_secret_file"]
+    if not isinstance(secret, str) or not secret or "\x00" in secret or not Path(secret).is_absolute():
+        raise ConfigError("OIDC secret requires an absolute file path")
+    return OIDCSettings(_https(data["issuer"]), _https(data["authorization_endpoint"]),
+                        _https(data["token_endpoint"]), _https(data["jwks_uri"]),
+                        client, Path(secret), _https(data["public_origin"], origin=True))
+
 
 
 def _root(value) -> Path:

@@ -6,9 +6,10 @@ from montara_core.adapters.sqlite_jobs import SQLiteJobStore
 from montara_core.adapters.sqlite_media import SQLiteMediaStore
 from montara_core.adapters.sqlite_projects import SQLiteProjectStore
 from montara_core.adapters.sqlite_publication import SQLitePublicationStore
+from montara_core.adapters.sqlite_identity import SQLiteIdentityStore
 
 
-class SQLiteCoreStore(SQLiteProjectStore, SQLiteJobStore, SQLiteMediaStore, SQLitePublicationStore):
+class SQLiteCoreStore(SQLiteProjectStore, SQLiteJobStore, SQLiteMediaStore, SQLitePublicationStore, SQLiteIdentityStore):
     """All ports share one initialized database; no new persistence authority."""
 
     def __init__(self, path: Path, local: LocalMedia | None = None,

@@ -4,6 +4,9 @@ from pathlib import Path
 import sys
 
 from montara_core.api.http import create_server
+from montara_core.api.authenticated import create_authenticated_server
+from montara_core.adapters.oidc import OIDCProvider, read_client_secret
+from montara_core.application.identity import AuthenticationService, AuthError
 from montara_core.application.ports import StorageError
 from montara_core.bootstrap.config import ConfigError, load_config
 from montara_core.bootstrap.core import build_core
@@ -22,14 +25,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.check_config:
         print("Configuration valid")
         return 0
+    core = None
+    auth = None
     if config.sqlite_path is not None:
         try:
-            build_core(config)
-        except StorageError as exc:
+            core = build_core(config)
+            if config.oidc is not None:
+                provider = OIDCProvider(config.oidc, read_client_secret(config.oidc.client_secret_file))
+                auth = AuthenticationService(core.identity, provider)
+        except (StorageError, AuthError) as exc:
             print(f"Storage error: {exc}", file=sys.stderr)
             return 1
     try:
-        server = create_server(config.port)
+        server = (create_authenticated_server(config.port, config.oidc.public_origin,
+                                              core, auth) if auth is not None
+                  else create_server(config.port))
     except OSError:
         print("Startup error: unable to bind local health server", file=sys.stderr)
         return 1

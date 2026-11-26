@@ -415,7 +415,7 @@ class V3MigrationTests(unittest.TestCase):
         self.assertEqual(next_ref.task_id, ref.task_id)
         self.assertEqual(core.jobs.succeed(next_ref, "new").result, "new")
         with SQLiteDatabase(self.path)._connection() as db:
-            self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (4,))
+            self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (5,))
             self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
             self.assertEqual(db.execute("SELECT count(*) FROM attempts").fetchone(), (3,))
 

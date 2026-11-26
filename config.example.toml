@@ -11,3 +11,13 @@ port = 8080
 
 # H2.4: persistent private artifacts, separate from media/workspace/DB.
 # artifact_root = "/path/to/persistent-artifacts"
+
+# H2.5 optional OIDC; uncomment only on an authorized isolated HTTPS LAB.
+# [oidc]
+# issuer = "https://accounts.google.com"
+# authorization_endpoint = "https://accounts.google.com/o/oauth2/v2/auth"
+# token_endpoint = "https://oauth2.googleapis.com/token"
+# jwks_uri = "https://www.googleapis.com/oauth2/v3/certs"
+# client_id = "REPLACE_WITH_V2_CLIENT_ID"
+# client_secret_file = "/path/to/private/client-secret"
+# public_origin = "https://montara-v2.example.invalid"

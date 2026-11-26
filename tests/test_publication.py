@@ -335,6 +335,7 @@ with patch.object(SQLitePublicationStore, '_commit_publication', side_effect=lam
         # Simulate exact old schema with a previously created export job,
         # without an attributed Stage profile. No real downgrade path.
         with sqlite3.connect(self.config.sqlite_path) as db:
+            db.execute("DROP TABLE oidc_identities")
             db.execute("DROP TABLE artifact_publications")
             db.execute("DROP TABLE export_snapshots")
             db.execute("PRAGMA user_version=3")
