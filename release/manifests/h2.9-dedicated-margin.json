@@ -1,0 +1,41 @@
+{
+  "format": 1,
+  "source": "human_operator_report_recorded_by_Alfred",
+  "evidence_url": "https://github.com/Montara-Projects/MONTARA-BRAIN/issues/30#issuecomment-7195292875",
+  "stop_evidence_url": "https://github.com/Montara-Projects/MONTARA-BRAIN/issues/30#issuecomment-7194405249",
+  "probe_blob": "818a56b864f41b3fc0c4b3e102a8fa91c9ca4fbd",
+  "wheel_sha256": "c7e11118d2d1c5bffe658b3ed2ef11ed8101e47e6ef027bd6a601c442bb8304f",
+  "checks": {
+    "script_integrity": "PASS",
+    "archived_wheel": "PASS",
+    "prep": "PASS",
+    "worker_limits": "PASS",
+    "worker_publication": "PASS",
+    "worker_margin": "PASS",
+    "dedicated_margin_probe": "PASS",
+    "receipt_digest": "PASS",
+    "stop_probe": "PASS"
+  },
+  "worker": {
+    "wall_s": 53.769,
+    "cpu_quota_cores": 2,
+    "cpu_usage_s": 91.927,
+    "cpu_throttled_s": 50.676,
+    "tasks_max": 256,
+    "memory_peak_bytes": 895168512,
+    "memory_limit_bytes": 4294967296,
+    "memory_margin_bytes": 3399798784,
+    "memory_events_delta": {
+      "high": 0,
+      "low": 0,
+      "max": 0,
+      "oom": 0,
+      "oom_group_kill": 0,
+      "oom_kill": 0
+    },
+    "qa_http_build_excluded": true
+  },
+  "scope": "Single synthetic fixture, human-reported evidence; not permanent deployment or long workload capacity. No rerun.",
+  "google_real": "NOT RUN",
+  "public_https": "NOT RUN"
+}
