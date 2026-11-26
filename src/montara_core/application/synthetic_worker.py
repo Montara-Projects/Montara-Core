@@ -4,7 +4,7 @@ from montara_core.domain.jobs import Job
 
 
 def run_once(service: JobService) -> Job | None:
-    attempt = service.claim()
+    attempt = service.claim(synthetic_only=True)
     if attempt is None:
         return None
     # Only the authority publishes the synthetic result; no file or media.
