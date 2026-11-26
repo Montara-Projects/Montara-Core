@@ -1,0 +1,63 @@
+{
+  "status": "PASS",
+  "scope": "Chromium HTTPS fixture OIDC -> installed Core HTTP -> installed worker CLI -> real Engine -> publication -> browser MP4 download",
+  "browser": "Chromium",
+  "browser_transport_preflight": "PASS",
+  "admission": "PASS",
+  "owner_isolation": "PASS",
+  "logout_relogin": "PASS",
+  "worker": "PASS",
+  "worker_idle_no_duplicate": "PASS",
+  "publication": "PASS",
+  "published_reopen": "PASS",
+  "browser_download_digest": "PASS",
+  "full_decode": "PASS",
+  "duration_sec": 6.0,
+  "resolution": "1920x1080",
+  "fps": 30,
+  "video_codec": "h264",
+  "audio_codec": "aac",
+  "sha256": "e54dad8764762ef56c0e362dc27ac5f280fb29713a3f87bcf7647c5979e4830f",
+  "size_bytes": 279812,
+  "frames": [
+    {
+      "at": 1.5,
+      "color": "red"
+    },
+    {
+      "at": 2.25,
+      "color": "blue"
+    },
+    {
+      "at": 2.8,
+      "color": "blue"
+    },
+    {
+      "at": 3.5,
+      "color": "yellow"
+    },
+    {
+      "at": 4.5,
+      "color": "green"
+    }
+  ],
+  "tones": [
+    {
+      "at": 1,
+      "master_dominant": true
+    },
+    {
+      "at": 3,
+      "master_dominant": true
+    },
+    {
+      "at": 5,
+      "master_dominant": true
+    }
+  ],
+  "originals_unchanged": true,
+  "google_real": "NOT_RUN",
+  "production_proxy": "NOT_RUN",
+  "historical_preserved": true,
+  "supervisor_single_cycle": true
+}
