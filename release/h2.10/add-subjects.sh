@@ -17,7 +17,7 @@ while read -r hash name; do
     test "$(stat -c %u "$S/$name")" = 0
     test "$(git hash-object --no-filters "$S/$name")" = "$hash"
 done <<'HASHES'
-35819a26552e9b24a53fc13e402499ea5d3b2ec8 render-config.py
+f2603013903f4a05140489cb8d463577ab29eceb render-config.py
 ab5d5fdad3f518088c8c6f94a30481b26d8a16b8 extend-admission.py
 6714a88dbbf507e34f6e35e785231d3c832d8518 enrol-batch.sh
 a6f137778ed181aaf7ea08238c4b94e64696ccd4 enrol.py
@@ -46,7 +46,7 @@ done
 test "$(stat -c %a "$cfg/allowed-subjects")" = 600
 test "$(stat -c %a "$cfg/operator.toml")" = 600
 test "$(stat -c %a "$cfg/core.toml")" = 640
-test "$(git hash-object --no-filters "$control/render-config.py")" = 35819a26552e9b24a53fc13e402499ea5d3b2ec8
+test "$(git hash-object --no-filters "$control/render-config.py")" = f2603013903f4a05140489cb8d463577ab29eceb
 test "$(systemctl show montara-pilot-enrol.service -p LoadState --value)" = not-found
 test ! -e /etc/systemd/system/montara-pilot-enrol.service.d
 for n in montara-pilot montara-pilot-enrol montara-pilot-ingress; do id "$n" >/dev/null; done
