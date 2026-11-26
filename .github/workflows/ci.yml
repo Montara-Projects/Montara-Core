@@ -1,4 +1,4 @@
-name: H1.1 Linux package smoke
+name: Core Linux package smoke
 on:
   push:
     branches: [main]
@@ -23,5 +23,6 @@ jobs:
           python -m venv "$RUNNER_TEMP/core-venv"
           "$RUNNER_TEMP/core-venv/bin/python" -m pip install --no-index --no-deps "$RUNNER_TEMP"/wheels/*.whl
           cd "$RUNNER_TEMP"
-          "$RUNNER_TEMP/core-venv/bin/python" -m montara_core --check-config --config "$GITHUB_WORKSPACE/config.example.toml"
-          "$RUNNER_TEMP/core-venv/bin/python" -m unittest discover -s "$GITHUB_WORKSPACE/tests" -v
+          "$RUNNER_TEMP/core-venv/bin/python" -I -c 'import pathlib, sys, montara_core; p = pathlib.Path(montara_core.__file__).resolve(); assert p.is_relative_to(pathlib.Path(sys.prefix).resolve()) and "site-packages" in p.parts; print("INSTALLED_PACKAGE=PASS")'
+          "$RUNNER_TEMP/core-venv/bin/python" -I -m montara_core --check-config --config "$GITHUB_WORKSPACE/config.example.toml"
+          "$RUNNER_TEMP/core-venv/bin/python" -I -m unittest discover -s "$GITHUB_WORKSPACE/tests" -v
