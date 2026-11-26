@@ -1,0 +1,12 @@
+{
+  "busy_no_mutation": true,
+  "lock_inode_preserved": true,
+  "candidate_process_exit": 23,
+  "exact_recover_without_render": true,
+  "replay_idempotent": true,
+  "stale_interrupt_rejected": true,
+  "nonrecoverable_active_interrupted": true,
+  "idle_no_retry": true,
+  "historical_and_real_receipts_preserved": true,
+  "scope": "candidate fixture attestation with archived real bytes; no new render; no concurrent executor during interrupt"
+}
