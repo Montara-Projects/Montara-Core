@@ -1,0 +1,53 @@
+name: H2 real Engine candidate
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/montara_core/adapters/zucker_engine.py'
+      - 'tests/engine_h2_smoke.py'
+      - 'tests/test_zucker_engine.py'
+      - '.github/workflows/engine-h2.yml'
+permissions:
+  contents: read
+jobs:
+  engine-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Montara-Projects/Montara
+          ref: 1fb15f87eb8df9e1ac08123fb7a8e79ffad1c24d
+          path: upstream-jm
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: amehcgracia-byte/zucker_videos
+          ref: 9af275b18535005e36bd289a68ceb4a1d2f6c506
+          path: upstream-engine
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install isolated component QA runtime
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          python -m venv "$RUNNER_TEMP/engine-venv"
+          "$RUNNER_TEMP/engine-venv/bin/pip" install -r upstream-jm/tests/requirements-core-fixture.txt
+          python -m pip wheel --no-deps --wheel-dir "$RUNNER_TEMP/wheels" .
+          "$RUNNER_TEMP/engine-venv/bin/pip" install --no-index --no-deps "$RUNNER_TEMP"/wheels/*.whl
+      - name: Real render from installed adapter
+        run: |
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/engine-venv/bin/python" -I "$GITHUB_WORKSPACE/tests/engine_h2_smoke.py" "$GITHUB_WORKSPACE/upstream-jm" "$GITHUB_WORKSPACE/upstream-engine" "$RUNNER_TEMP/h2-engine-result"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: h2-engine-quality-report
+          path: ${{ runner.temp }}/h2-engine-result/quality-report.json
+          retention-days: 7
+          if-no-files-found: error
