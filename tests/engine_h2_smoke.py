@@ -14,7 +14,7 @@ from montara_core.bootstrap.config import Config
 from montara_core.bootstrap.core import build_core
 from montara_core.domain.execution import ExecutionSpec, EngineCandidate, Shot
 from montara_core.domain.jobs import JobState
-from montara_core.adapters.zucker_engine import ZuckerEngineAdapter, EngineExecutionError
+from montara_core.adapters.zucker_engine import ZuckerEngineAdapter, EngineExecutionError, _stage_semantics
 
 
 def main():
@@ -173,6 +173,16 @@ def main():
     verify_no_duplicate(spec)
     result=vars(candidate)
     workspace=spec.workspace
+    attestation=json.loads((workspace/"engine"/"candidate-manifest.json").read_text())
+    assert attestation["recipe_revision_id"]==spec.recipe_revision_id
+    assert attestation["attempt_id"]==spec.attempt_id and attestation["generation"]==spec.generation
+    assert attestation["candidate"]=={k:v for k,v in result.items() if k!="path"}
+    assert attestation["stage_semantics"]==_stage_semantics()
+    assert attestation["stage_semantics"]["id"]=="stage-engineering-v0"
+    assert attestation["stage_semantics"]["neutral"] is False
+    assert attestation["stage_semantics"]["extra_bookends"] is False
+    assert attestation["stage_semantics"]["edge_fades"]=="stage-default-audio-video"
+    assert attestation["stage_semantics"]["video_color"]=="stage-default-matching"
     assert candidate.path.is_relative_to(workspace)
     assert media.sha256(candidate.path)==candidate.sha256
     assert media.verify_inputs(bank)==original_manifest
@@ -183,7 +193,8 @@ def main():
     info=media.probe(result["path"])
     assert abs(float(info["format"]["duration"])-6)<.15
     media.decode(result["path"])
-    # V2 v0 speed=1 and no effects; original JM oracle's 1.5x speed assertion
+    # V2 engineering Stage speed=1, no manual effects; inherited fades/color remain.
+    # Original JM oracle's 1.5x speed assertion
     # is intentionally replaced with speed=1 checkpoints, not weakened.
     frames=[]
     for at,color in [(1.5,"red"),(2.25,"blue"),(2.8,"blue"),(3.5,"yellow"),(4.5,"green")]:
@@ -209,6 +220,7 @@ def main():
                   full_decode="PASS",originals_unchanged=True,workspace_reuse_rejected=True,
                   ffmpeg=original_manifest["ffmpeg"], canonical_execution_spec=True,
                   core_job_still_running=True, preflight_negatives=negatives,
+                  stage_semantics=attestation["stage_semantics"], candidate_manifest="PASS",
                   direct_staged_inputs="PASS", authored_silence={"status":"PASS","active_rms":active,"tail_rms":quiet},
                   authorized_bookend_padding={"status":"PASS","intro_rms":intro,"content_rms":content,"outro_rms":outro})
     (out/"quality-report.json").write_text(json.dumps(report,indent=2))

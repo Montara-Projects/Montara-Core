@@ -19,6 +19,20 @@ if TYPE_CHECKING:
 ENGINE_REVISION = "9af275b18535005e36bd289a68ceb4a1d2f6c506"
 ENGINE_VERSION = "2.6.20"
 RENDERER_REVISION = "1fb15f87eb8df9e1ac08123fb7a8e79ffad1c24d"
+STAGE_SEMANTICS = "stage-engineering-v0"
+
+
+def _stage_semantics():
+    """Private attestation of the fixed engineering profile, not a public recipe schema."""
+    return {"id": STAGE_SEMANTICS, "renderer_revision": RENDERER_REVISION,
+            "engine_revision": ENGINE_REVISION, "engine_version": ENGINE_VERSION,
+            "platform": "youtube", "branding": "none",
+            "presentation": "in-content-stage-defaults",
+            "video_color": "stage-default-matching", "video_light": "disabled",
+            "edge_fades": "stage-default-audio-video", "extra_bookends": False,
+            "manual_effects": False, "neutral": False,
+            "master": "continuous-from-zero-full-content-coverage",
+            "padding": "preserve-mux-policy-no-missing-content"}
 
 
 class EngineExecutionError(RuntimeError):
@@ -317,7 +331,15 @@ class ZuckerEngineAdapter:
                            check=True, capture_output=True, timeout=180)
             for item in inputs.values():
                 _verify_staged_input(item)
-            return {"path": output, "sha256": _digest(output), "size_bytes": output.stat().st_size,
-                    "engine_version": ENGINE_VERSION, "engine_revision": ENGINE_REVISION}
+            candidate = {"path": output, "sha256": _digest(output), "size_bytes": output.stat().st_size,
+                         "engine_version": ENGINE_VERSION, "engine_revision": ENGINE_REVISION}
+            # Record the actual pinned execution semantics beside the private
+            # verified candidate. Core owns publication and future snapshot schema.
+            with (root / "candidate-manifest.json").open("x", encoding="utf-8") as stream:
+                json.dump({"schema": 1, "recipe_revision_id": spec.recipe_revision_id,
+                           "attempt_id": spec.attempt_id, "generation": spec.generation,
+                           "candidate": {k: v for k, v in candidate.items() if k != "path"},
+                           "stage_semantics": _stage_semantics()}, stream, sort_keys=True)
+            return candidate
         except (OSError, subprocess.SubprocessError, ValueError, KeyError) as exc:
             raise EngineExecutionError("Engine execution or candidate verification failed") from exc

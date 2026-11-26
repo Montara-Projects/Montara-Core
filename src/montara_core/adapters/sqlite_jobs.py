@@ -3,6 +3,7 @@ import sqlite3
 from uuid import uuid4
 
 from montara_core.adapters.sqlite_db import SQLiteDatabase
+from montara_core.adapters.sqlite_media import SQLiteMediaStore
 from montara_core.application.ports import StorageError
 from montara_core.domain.jobs import AttemptRef, Job, JobNotFound, JobState, Task, TransitionError
 from montara_core.domain.projects import ProjectNotFound
@@ -71,10 +72,10 @@ class SQLiteJobStore(SQLiteDatabase):
                 return self._read(connection, existing[0], actor)
             if recipe_id is not None:
                 latest = connection.execute(
-                    "SELECT id FROM recipe_revisions WHERE project_id = ? ORDER BY revision DESC LIMIT 1",
+                    "SELECT * FROM recipe_revisions WHERE project_id = ? ORDER BY revision DESC LIMIT 1",
                     (project,),
                 ).fetchone()
-                if latest != (recipe_id,):
+                if latest is None or latest[0] != recipe_id:
                     raise TransitionError("recipe is not the current authorized revision")
                 if connection.execute(
                     "SELECT 1 FROM recipe_inputs i JOIN representations r ON r.id = i.representation_id "
@@ -82,6 +83,9 @@ class SQLiteJobStore(SQLiteDatabase):
                     "WHERE newer.asset_id = r.asset_id AND newer.revision > r.revision)", (recipe_id,),
                 ).fetchone():
                     raise TransitionError("recipe references obsolete original")
+                SQLiteMediaStore._validated_recipe_locations(
+                    connection, SQLiteMediaStore._recipe(latest)
+                )
             job_id = str(uuid4())
             connection.execute(
                 "INSERT INTO jobs(id, project_id, request_key, state, generation) "
