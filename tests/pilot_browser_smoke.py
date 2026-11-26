@@ -4,6 +4,7 @@ Chromium and a test-only HTTPS reverse proxy, not Google or deployed TLS.
 Uses one canonical real render. No credentials, private paths or IDs in report.
 """
 import array
+import base64
 import hashlib
 from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -34,6 +35,19 @@ class TestProxy:
         self.target=None
         class Handler(BaseHTTPRequestHandler):
             def forward(self):
+                # Test harness only: exercise Chromium's TLS/download path
+                # before spending a real render, never substitute product MP4.
+                if self.command=="GET" and self.path in ("/__qa-download-page","/__qa-download"):
+                    probe=self.path=="/__qa-download"
+                    payload=b"qa-transport-probe" if probe else b'<a href="/__qa-download">Probe</a>'
+                    self.send_response(200)
+                    self.send_header("Content-Type","application/octet-stream" if probe else "text/html")
+                    if probe:
+                        self.send_header("Content-Disposition",'attachment; filename="probe.bin"')
+                    self.send_header("Content-Length",str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                    return
                 conn=HTTPConnection("127.0.0.1",proxy.target,timeout=90)
                 try:
                     body=self.rfile.read(int(self.headers.get("Content-Length","0"))) if self.command=="POST" else None
@@ -102,10 +116,30 @@ def main():
         assert match,"installed HTTP startup failed"
         proxy.target=int(match[1])
 
+        # Playwright context ignore_https_errors does not reliably cover
+        # Chromium's separate download network path. Pin only the ephemeral
+        # fixture certificate SPKI in this test browser; trust the fixture CA
+        # in the Node API client. No global certificate bypass in product.
+        cert=fixture_dir/"test-ca.pem"
+        pubkey=subprocess.check_output(["openssl","x509","-in",str(cert),"-pubkey","-noout"],timeout=10)
+        der=subprocess.check_output(["openssl","pkey","-pubin","-outform","der"],input=pubkey,timeout=10)
+        pin=base64.b64encode(hashlib.sha256(der).digest()).decode("ascii")
+        os.environ["NODE_EXTRA_CA_CERTS"]=str(cert)
         with sync_playwright() as playwright:
-            browser=playwright.chromium.launch(headless=True)
+            browser=playwright.chromium.launch(channel="chromium",headless=True,
+                args=["--ignore-certificate-errors-spki-list="+pin])
+            probe_context=browser.new_context(accept_downloads=True)
+            probe_page=probe_context.new_page()
+            probe_page.goto(proxy.origin+"/__qa-download-page")
+            with probe_page.expect_download() as transport:
+                probe_page.get_by_role("link",name="Probe").click()
+            assert transport.value.failure() is None,"QA HTTPS browser download transport failed"
+            probe_file=out/"transport-probe.bin"
+            transport.value.save_as(probe_file)
+            assert probe_file.read_bytes()==b"qa-transport-probe"
+            probe_context.close()
             def login(subject):
-                context=browser.new_context(ignore_https_errors=True,accept_downloads=True)
+                context=browser.new_context(accept_downloads=True)
                 context.add_cookies([{"name":"fixture-subject","value":subject,
                     "domain":"127.0.0.1","path":"/authorize","secure":True,"sameSite":"Lax"}])
                 page=context.new_page()
@@ -164,10 +198,18 @@ def main():
             report=json.loads(worker.stdout)
             assert report["worker"]=="published" and report["job_id"]==job
             expect(a.locator("#jobs")).to_contain_text("succeeded",timeout=15000)
+            # Diagnostic HTTP response must already be authorized and intact;
+            # the actual browser download below remains mandatory.
+            served=a.request.get(proxy.origin+"/api/jobs/"+job+"/artifact")
+            assert served.status==200 and served.headers["content-type"]=="video/mp4"
+            assert "attachment" in served.headers["content-disposition"]
+            assert len(served.body())==int(served.headers["content-length"])
             with a.expect_download() as download:
                 a.get_by_role("link",name="Descargar MP4").click()
             downloaded=out/"downloaded.mp4"
+            assert download.value.failure() is None,"real browser MP4 download failed"
             download.value.save_as(downloaded)
+            assert downloaded.read_bytes()==served.body()
             receipt=build_core(config).publication.get_artifact(owner_a,job)
             assert media.sha256(downloaded)==receipt.sha256==media.sha256(receipt.path)
             assert downloaded.stat().st_size==receipt.size_bytes
@@ -177,7 +219,7 @@ def main():
             assert b.request.get(proxy.origin+"/api/jobs/"+job).status==404
             assert b.request.get(proxy.origin+"/api/jobs/"+job+"/artifact").status==404
             assert b.request.get(proxy.origin+"/api/projects").json()==[]
-            fresh=browser.new_context(ignore_https_errors=True)
+            fresh=browser.new_context()
             assert fresh.request.get(proxy.origin+"/api/jobs/"+job+"/artifact").status==401
             fresh.close()
             # Browser reload and owner project selection recover durable job.
@@ -216,7 +258,7 @@ def main():
             assert values[997]>=50 and values[997]>=10*max(values[223],values[443])
             tones.append({"at":at,"master_dominant":True})
         evidence={"status":"PASS","scope":"Chromium HTTPS fixture OIDC -> installed Core HTTP -> installed worker CLI -> real Engine -> publication -> browser MP4 download",
-                  "browser":"Chromium","admission":"PASS","owner_isolation":"PASS","logout_relogin":"PASS",
+                  "browser":"Chromium","browser_transport_preflight":"PASS","admission":"PASS","owner_isolation":"PASS","logout_relogin":"PASS",
                   "worker":"PASS","worker_idle_no_duplicate":"PASS","publication":"PASS",
                   "published_reopen":"PASS","browser_download_digest":"PASS","full_decode":"PASS",
                   "duration_sec":float(probe["format"]["duration"]),"resolution":"1920x1080","fps":30,
