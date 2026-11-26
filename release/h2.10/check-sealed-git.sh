@@ -23,12 +23,13 @@ done
 test "$(git config --global --get-all safe.directory)" = "$(printf '%s\n%s' "$renderer" "$engine")"
 echo GIT_TRUST_EXACT=PASS
 check() {
-    local p="$1" pin="$2" tmp
+    local p="$1" pin="$2" tmp dirty
     test "$(realpath "$p")" = "$p"
     test "$(stat -c %u "$p")" = 0
     test "$(stat -c %u "$p/.git")" = 0
     test "$(git -C "$p" rev-parse HEAD)" = "$pin"
-    test -z "$(git -C "$p" status --porcelain --untracked-files=no)"
+    dirty=$(git -C "$p" status --porcelain --untracked-files=no)
+    test -z "$dirty"
     for d in "$p" "$p/.git"; do
         if tmp=$(mktemp "$d/.montara-write-check.XXXXXXXX" 2>/dev/null); then
             rm -f -- "$tmp"
