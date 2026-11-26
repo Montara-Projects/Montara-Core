@@ -1,0 +1,3 @@
+[safe]
+    directory = /opt/montara-pilot/releases/c7e11118d2d1/renderer-src
+    directory = /opt/montara-pilot/releases/c7e11118d2d1/engine-src
