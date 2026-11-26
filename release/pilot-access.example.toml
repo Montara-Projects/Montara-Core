@@ -1,0 +1,37 @@
+# Propuesta de acceso piloto V2. Plantilla privada al instanciar.
+# NO es un TOML de Core ni una configuración desplegable directamente.
+# No introducir valores reales en el repositorio. No aplicar automáticamente.
+format = 1
+environment = "v2-pilot"
+public_origin = "https://pilot.example.invalid"
+# Derivar host y callback de public_origin, no repetirlos aquí.
+[ingress]
+adapter = "caddy-direct" # alternativa: cloudflare-worker-tunnel (condicionada)
+backend = "127.0.0.1:8080"
+dns_provider = "duckdns" # candidato, no reservado
+tls = "public-acme"
+network_admission = "operator-ip-allowlist"
+network_allowlist_file = "/etc/montara-pilot/network-allowlist"
+cache = false
+[identity]
+provider = "google-oidc"
+issuer = "https://accounts.google.com"
+discovery = "https://accounts.google.com/.well-known/openid-configuration"
+client_id_file = "/etc/montara-pilot/client-id"
+client_secret_file = "/etc/montara-pilot/client-secret"
+allowed_subjects_file = "/etc/montara-pilot/allowed-subjects"
+scope = "openid"
+[release]
+core_commit = "4a7fb469d5a750e1384685695cabb24523ed78a9"
+wheel_sha256 = "c7e11118d2d1c5bffe658b3ed2ef11ed8101e47e6ef027bd6a601c442bb8304f"
+[worker]
+memory_max_bytes = 4294967296
+cpu_quota_percent = 200
+tasks_max = 256
+render_timeout_sec = 180
+runtime_max_sec = 600
+restart = "no"
+[branding]
+app_name = "Montara"
+logo_source = "Montara-Projects/Montara:web/brand/montara-logo.png"
+logo_git_blob = "53744454c5ba44a1849394c053dcf6709aaf9b99"
