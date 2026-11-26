@@ -82,14 +82,12 @@ def _plan(spec):
     return inputs, cameras, recipe, elapsed
 
 
-def _copy_verified(item, destination):
+def _verify_staged_input(item):
     source = item.path
     if (not source.is_absolute() or source.is_symlink() or not source.is_file()
             or source.stat().st_size != item.size_bytes or _digest(source) != item.sha256):
         raise EngineExecutionError("Input identity mismatch")
-    shutil.copyfile(source, destination)
-    if destination.stat().st_size != item.size_bytes or _digest(destination) != item.sha256:
-        raise EngineExecutionError("Materialized input changed")
+    return source
 
 def _probe(path, *args):
     result = subprocess.run(["ffprobe", "-v", "error", *args, "-of", "json", str(path)],
@@ -100,7 +98,12 @@ def _probe(path, *args):
 
 
 def _check_master(path, duration_ms):
-    """PCM WAV: require actual sample frames, not a padded container duration."""
+    """H2 content span requires physical PCM frames, including genuine silence.
+
+    Preserve upstream mux padding for presentation/cadence. This recipe has
+    no separate authorized synthetic interval; never use padding to replace
+    absent samples inside the requested content span.
+    """
     info = _probe(path, "-show_streams", "-show_format")
     streams = info["streams"]
     if (len(streams) != 1 or streams[0]["codec_type"] != "audio"
@@ -235,21 +238,22 @@ class ZuckerEngineAdapter:
             shutil.copyfile(self.renderer_root / "companion" / name, layout / name)
         (layout / "engine").symlink_to(self.engine_root, target_is_directory=True)
         (layout / "brand").symlink_to(self.renderer_root / "web" / "brand", target_is_directory=True)
-        media = root / "inputs"
-        media.mkdir(mode=0o700)
+        # Core already owns one private verified snapshot. The pinned runner
+        # reads file_record/ffprobe and passes media as input to ExportStage;
+        # all mutable project, cache and output paths belong to engine/.
+        # A second full media copy buys no privilege separation in this process.
+        for item in inputs.values():
+            _verify_staged_input(item)
         sources = {}
         for representation, key in cameras.items():
             item = inputs[representation]
             if item.path.suffix.lower() not in (".mp4", ".mov"):
                 raise EngineExecutionError("H2 camera must be MP4 or MOV")
-            dest = media / ("camera-" + str(key) + item.path.suffix.lower())
-            _copy_verified(item, dest)
-            sources[str(key)] = str(dest)
-        master = media / "master.wav"
+            sources[str(key)] = str(item.path)
         master_input = inputs[spec.master_representation_id]
         if master_input.path.suffix.lower() != ".wav":
             raise EngineExecutionError("H2 master must be PCM WAV")
-        _copy_verified(master_input, master)
+        master = master_input.path
         _check_master(master, duration_ms)
         for representation, key in cameras.items():
             required_end = max(s.end_ms for s in spec.shots if s.representation_id == representation)
@@ -312,8 +316,7 @@ class ZuckerEngineAdapter:
                             "-map", "0:v:0", "-map", "0:a:0", "-f", "null", "-"],
                            check=True, capture_output=True, timeout=180)
             for item in inputs.values():
-                if item.path.stat().st_size != item.size_bytes or _digest(item.path) != item.sha256:
-                    raise EngineExecutionError("Staged Core input changed")
+                _verify_staged_input(item)
             return {"path": output, "sha256": _digest(output), "size_bytes": output.stat().st_size,
                     "engine_version": ENGINE_VERSION, "engine_revision": ENGINE_REVISION}
         except (OSError, subprocess.SubprocessError, ValueError, KeyError) as exc:

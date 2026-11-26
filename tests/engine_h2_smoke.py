@@ -5,6 +5,11 @@ from pathlib import Path
 import sys
 from dataclasses import replace
 import shutil
+import array
+import math
+import os
+import subprocess
+import wave
 from montara_core.bootstrap.config import Config
 from montara_core.bootstrap.core import build_core
 from montara_core.domain.execution import ExecutionSpec, EngineCandidate, Shot
@@ -28,7 +33,7 @@ def main():
     core=build_core(config)
     owner=core.projects.provision_account().id
 
-    def prepare(name, *, short_master=False, short_camera=False, false_master=False):
+    def prepare(name, *, short_master=False, short_camera=False, false_master=False, silent_master=False):
         project=core.projects.create_project(owner,name).id
         folder=originals/project
         folder.mkdir()
@@ -40,6 +45,16 @@ def main():
                            "-c:a","pcm_s16le",str(folder/"master.wav")])
         if false_master:
             shutil.copyfile(bank/"camera-a.mp4",folder/"master.wav")
+        if silent_master:
+            # Authored silence is real PCM coverage, not missing audio.
+            master=folder/"master.wav"
+            with wave.open(str(master),"rb") as f:
+                params=f.getparams(); data=f.readframes(f.getnframes())
+            assert params.nframes==6*params.framerate
+            stride=params.nchannels*params.sampwidth
+            tail=params.framerate*stride
+            with wave.open(str(master),"wb") as f:
+                f.setparams(params); f.writeframes(data[:-tail]+bytes(tail))
         if short_camera:
             # Misleading container duration: video ends at 5.9, audio at 6.
             short=out/"short-video.mp4"
@@ -82,6 +97,63 @@ def main():
         else: raise AssertionError("Partial workspace reuse accepted")
         core.jobs.fail(ref)
         negatives[name]="PASS"
+    def samples_at(path, at):
+        raw=media.execute(["ffmpeg","-v","error","-ss",str(at),"-i",str(path),
+                           "-t","0.25","-vn","-ac","1","-ar",str(media.RATE),"-f","s16le","-"])
+        values=array.array("h",raw)
+        if sys.byteorder!="little": values.byteswap()
+        assert len(values)>=media.RATE//8
+        return values
+
+    def rms(values):
+        return math.sqrt(sum(v*v for v in values)/len(values))
+
+    def verify_no_duplicate(spec):
+        root=spec.workspace/"engine"
+        request=json.loads((root/"request.json").read_text())
+        expected={str(i.path) for i in spec.inputs}
+        assert set(request["source_files"].values())|{request["master"]}==expected
+        assert not (root/"inputs").exists()
+        assert all(media.sha256(i.path)==i.sha256 for i in spec.inputs)
+
+    # Demonstrate the actual pinned mux's intentional presentation padding
+    # with nonzero selected audio offset, 1s bookends, 4s content.
+    mux_root=out/"legacy-mux"
+    mux_root.mkdir()
+    joined=mux_root/"video.mp4"
+    media.execute(["ffmpeg","-v","error","-i",str(bank/"camera-a.mp4"),"-an","-c:v","copy",str(joined)])
+    mux_output=mux_root/"candidate.mp4"
+    mux_code=(
+        "import sys; from pathlib import Path; sys.path.insert(0,sys.argv[1]); "
+        "from core.stages.export import _mux_continuous_master_audio as mux; "
+        "mux(Path(sys.argv[2]),sys.argv[3],Path(sys.argv[4]),1.0,6.0,1000000,"
+        "lambda *args:None,content_start=1.0,content_end=5.0,audio_delay=1.0)"
+    )
+    mux_env={"PATH":os.environ["PATH"],"HOME":str(mux_root),
+             "ZUCKER_DATA_ROOT":str(mux_root/"state"),"ZUCKER_GLOBAL_CACHE":str(mux_root/"cache"),
+             "PYTHONDONTWRITEBYTECODE":"1","LANG":"C.UTF-8"}
+    subprocess.run([sys.executable,"-I","-B","-c",mux_code,str(engine),str(joined),
+                    str(bank/"master.wav"),str(mux_output)],env=mux_env,cwd=mux_root,
+                   check=True,capture_output=True,timeout=180)
+    media.decode(mux_output)
+    assert abs(float(media.probe(mux_output)["format"]["duration"])-6)<1/30
+    intro,content,outro=[rms(samples_at(mux_output,at)) for at in (.25,2.75,5.5)]
+    assert content>100 and intro<content*.01 and outro<content*.01,(intro,content,outro)
+
+    silent,sref,sjob,sfolder=prepare("authored-silence",silent_master=True)
+    before={p.name:media.sha256(p) for p in sfolder.iterdir()}
+    silent_candidate=adapter.execute(silent)
+    verify_no_duplicate(silent)
+    assert {p.name:media.sha256(p) for p in sfolder.iterdir()}==before
+    assert core.jobs.get_job(owner,sjob.id).state==JobState.RUNNING
+    active=rms(samples_at(silent_candidate.path,3.0))
+    quiet=rms(samples_at(silent_candidate.path,5.5))
+    assert active>100 and quiet<active*.01,(active,quiet)
+    assert abs(float(media.probe(silent_candidate.path)["format"]["duration"])-6)<1/30
+    # Test-only terminal failure releases the single job claim; publication
+    # is not implemented. Never mark this positive candidate as succeeded.
+    core.jobs.fail(sref)
+
     spec,ref,job,folder=prepare("positive")
     staged_before={p.path:media.sha256(p.path) for p in spec.inputs}
     original_before={p.name:media.sha256(p) for p in folder.iterdir()}
@@ -98,6 +170,7 @@ def main():
     negatives.update(extra_workspace="PASS",foreign_path="PASS")
     candidate=adapter.execute(spec)
     assert isinstance(candidate,EngineCandidate)
+    verify_no_duplicate(spec)
     result=vars(candidate)
     workspace=spec.workspace
     assert candidate.path.is_relative_to(workspace)
@@ -117,14 +190,9 @@ def main():
         actual,rgb=media.frame_color(result["path"],at)
         assert actual==color,(at,actual,color)
         frames.append({"at":at,"color":actual,"rgb":rgb})
-    import array
     tones=[]
     for at in (1,3,5):
-        raw=media.execute(["ffmpeg","-v","error","-ss",str(at),"-i",str(result["path"]),
-                           "-t","0.25","-vn","-ac","1","-ar",str(media.RATE),"-f","s16le","-"])
-        samples=array.array("h",raw)
-        if sys.byteorder!="little": samples.byteswap()
-        assert len(samples)>=media.RATE//8
+        samples=samples_at(result["path"],at)
         values={hz:media.tone_amplitude(samples,hz) for hz in (223,443,997)}
         assert values[997]>=50 and values[997]>=10*max(values[223],values[443]),values
         tones.append({"at":at,"amplitudes":values})
@@ -140,7 +208,9 @@ def main():
                   resolution="1920x1080",fps=30,video_codec="h264",audio_codec="aac",
                   full_decode="PASS",originals_unchanged=True,workspace_reuse_rejected=True,
                   ffmpeg=original_manifest["ffmpeg"], canonical_execution_spec=True,
-                  core_job_still_running=True, preflight_negatives=negatives)
+                  core_job_still_running=True, preflight_negatives=negatives,
+                  direct_staged_inputs="PASS", authored_silence={"status":"PASS","active_rms":active,"tail_rms":quiet},
+                  authorized_bookend_padding={"status":"PASS","intro_rms":intro,"content_rms":content,"outro_rms":outro})
     (out/"quality-report.json").write_text(json.dumps(report,indent=2))
     print(json.dumps(report,indent=2))
 

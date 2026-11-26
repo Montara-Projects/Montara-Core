@@ -2,7 +2,7 @@
 from pathlib import Path
 from types import SimpleNamespace as NS
 import unittest
-from montara_core.adapters.zucker_engine import _plan, _copy_verified, _verify_manifest, EngineExecutionError
+from montara_core.adapters.zucker_engine import _plan, _verify_staged_input, _verify_manifest, EngineExecutionError
 import tempfile
 import hashlib
 import json
@@ -44,21 +44,22 @@ class EngineMappingTests(unittest.TestCase):
             s=spec(); s.shots=shots
             with self.assertRaises(EngineExecutionError): _plan(s)
 
-    def test_copy_verifies_full_hash_and_refuses_symlink(self):
+    def test_staged_input_verifies_full_hash_without_copy_and_refuses_symlink(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)
             source=root/"source.mp4"
             source.write_bytes(b"original")
             item=NS(path=source,size_bytes=8,sha256=hashlib.sha256(b"original").hexdigest())
-            _copy_verified(item,root/"copy")
-            self.assertEqual((root/"copy").read_bytes(),b"original")
+            self.assertEqual(_verify_staged_input(item),source)
+            self.assertEqual(list(root.iterdir()),[source])
+            self.assertEqual(source.read_bytes(),b"original")
             source.write_bytes(b"modified")
-            with self.assertRaises(EngineExecutionError): _copy_verified(item,root/"wrong")
+            with self.assertRaises(EngineExecutionError): _verify_staged_input(item)
             source.write_bytes(b"original")
             link=root/"link"
             link.symlink_to(source)
             item.path=link
-            with self.assertRaises(EngineExecutionError): _copy_verified(item,root/"wrong")
+            with self.assertRaises(EngineExecutionError): _verify_staged_input(item)
 
     def test_manifest_rejects_changed_source_omission_or_proxy(self):
         with tempfile.TemporaryDirectory() as d:
