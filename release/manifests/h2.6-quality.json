@@ -1,0 +1,110 @@
+{
+  "sha256": "e54dad8764762ef56c0e362dc27ac5f280fb29713a3f87bcf7647c5979e4830f",
+  "size_bytes": 279812,
+  "engine_version": "2.6.20",
+  "engine_revision": "9af275b18535005e36bd289a68ceb4a1d2f6c506",
+  "status": "PASS",
+  "duration_sec": 6.0,
+  "frames": [
+    {
+      "at": 1.5,
+      "color": "red",
+      "rgb": [
+        229,
+        0,
+        2
+      ]
+    },
+    {
+      "at": 2.25,
+      "color": "blue",
+      "rgb": [
+        0,
+        0,
+        209
+      ]
+    },
+    {
+      "at": 2.8,
+      "color": "blue",
+      "rgb": [
+        0,
+        0,
+        209
+      ]
+    },
+    {
+      "at": 3.5,
+      "color": "yellow",
+      "rgb": [
+        230,
+        246,
+        7
+      ]
+    },
+    {
+      "at": 4.5,
+      "color": "green",
+      "rgb": [
+        9,
+        148,
+        4
+      ]
+    }
+  ],
+  "tones": [
+    {
+      "at": 1,
+      "amplitudes": {
+        "223": 2.4132237610152507,
+        "443": 3.4409097253908025,
+        "997": 1534.4719896965566
+      }
+    },
+    {
+      "at": 3,
+      "amplitudes": {
+        "223": 3.4417134255376816,
+        "443": 4.7801041487655365,
+        "997": 2046.349216859017
+      }
+    },
+    {
+      "at": 5,
+      "amplitudes": {
+        "223": 2.1774849412472124,
+        "443": 2.9312631521279955,
+        "997": 1193.008031982537
+      }
+    }
+  ],
+  "resolution": "1920x1080",
+  "fps": 30,
+  "video_codec": "h264",
+  "audio_codec": "aac",
+  "full_decode": "PASS",
+  "originals_unchanged": true,
+  "direct_staged_inputs": true,
+  "canonical_execution_spec": true,
+  "core_job_succeeded": true,
+  "publication": "PASS",
+  "published_reopen": "PASS",
+  "published_digest_verified": true,
+  "stage_semantics": {
+    "branding": "none",
+    "edge_fades": "stage-default-audio-video",
+    "engine_revision": "9af275b18535005e36bd289a68ceb4a1d2f6c506",
+    "engine_version": "2.6.20",
+    "extra_bookends": false,
+    "id": "stage-engineering-v0",
+    "manual_effects": false,
+    "master": "continuous-from-zero-full-content-coverage",
+    "neutral": false,
+    "padding": "preserve-mux-policy-no-missing-content",
+    "platform": "youtube",
+    "presentation": "in-content-stage-defaults",
+    "renderer_revision": "1fb15f87eb8df9e1ac08123fb7a8e79ffad1c24d",
+    "video_color": "stage-default-matching",
+    "video_light": "disabled"
+  }
+}
