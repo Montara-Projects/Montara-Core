@@ -71,10 +71,16 @@ cleanup() {
     trap - EXIT INT TERM HUP
     set +e
     if [ "$created" = 1 ] && [ "$done_ok" != 1 ]; then
-        systemctl stop montara-pilot-ingress.service montara-pilot-enrol.service montara-pilot-worker.service montara-pilot-http.service >/dev/null 2>&1
+        stop_ok=1
+        for unit in montara-pilot-ingress montara-pilot-enrol montara-pilot-worker montara-pilot-http; do
+            if [ "$(systemctl show "$unit.service" -p LoadState --value 2>/dev/null)" = not-found ]; then continue; fi
+            systemctl stop "$unit.service" >/dev/null 2>&1 || stop_ok=0
+            test "$(systemctl show "$unit.service" -p MainPID --value 2>/dev/null)" = 0 || stop_ok=0
+            case "$(systemctl show "$unit.service" -p ActiveState --value 2>/dev/null)" in inactive|failed) ;; *) stop_ok=0 ;; esac
+        done
         # Keep ACL and state; manual reviewed recovery if preparation partially completed.
         rm -f -- "$ecfg/client-secret" "$ecfg/arm.sha256"
-        echo "PILOT_STOPPED_REVIEW_REQUIRED"
+        if [ "$stop_ok" = 1 ]; then echo PILOT_STOPPED_REVIEW_REQUIRED; else echo PILOT_STOP_UNVERIFIED_FAIL_CLOSE_EDGE; rc=1; fi
     fi
     rm -rf -- "$T"
     exit "$rc"
