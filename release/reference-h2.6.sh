@@ -109,11 +109,14 @@ with phase("ffmpeg_local_closure"):
     assert len(deb_lock)==len(packages),(len(deb_lock),len(packages))
     bindir=home/"media-tools";bindir.mkdir()
     lib=ffroot/"usr/lib/x86_64-linux-gnu"
+    libdirs=[lib,ffroot/"lib/x86_64-linux-gnu"]
+    libdirs+=sorted({p.parent for p in ffroot.rglob("*.so*") if p.is_file()}-set(libdirs))
+    libpath=":".join(map(str,libdirs))
     for name in ("ffmpeg","ffprobe"):
         real=ffroot/"usr/bin"/name
         assert real.is_file()
         w=bindir/name
-        w.write_text('#!/bin/sh\nexport LD_LIBRARY_PATH="'+str(lib)+':'+str(ffroot/"lib/x86_64-linux-gnu")+'"\nexec "'+str(real)+'" "$@"\n')
+        w.write_text('#!/bin/sh\nexport LD_LIBRARY_PATH="'+libpath+'"\nexec "'+str(real)+'" "$@"\n')
         w.chmod(0o700)
     os.environ["PATH"]=str(bindir)+":"+os.environ["PATH"]
     ffver=run("ffmpeg","-version",capture=True).splitlines()[0]
@@ -125,7 +128,7 @@ with phase("ffmpeg_local_closure"):
     # Record dynamic closure actually resolved, including pre-existing host libraries.
     host_libs={}
     for name in ("ffmpeg","ffprobe"):
-        lddenv=dict(os.environ,LD_LIBRARY_PATH=str(lib)+":"+str(ffroot/"lib/x86_64-linux-gnu"))
+        lddenv=dict(os.environ,LD_LIBRARY_PATH=libpath)
         lines=run("ldd",ffroot/"usr/bin"/name,env=lddenv,capture=True).splitlines()
         assert not any("not found" in l for l in lines)
         for line in lines:
