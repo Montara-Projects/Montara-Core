@@ -3,10 +3,11 @@ from contextlib import contextmanager
 from pathlib import Path
 import sqlite3
 from typing import Iterator
+from uuid import uuid4
 
 from montara_core.application.ports import StorageError
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _MIGRATION_1 = (
     """CREATE TABLE accounts (
@@ -42,6 +43,69 @@ _MIGRATION_2 = (
     )""",
     "CREATE UNIQUE INDEX jobs_one_running_idx ON jobs(state) WHERE state = 'running'",
     "CREATE UNIQUE INDEX attempts_one_running_idx ON attempts(job_id) WHERE state = 'running'",
+)
+
+
+# v3 introduces original revisions, local copies, immutable recipes and one
+# Task per Job. The old attempt rows are copied into the new Task relationship.
+_MEDIA_DDL = (
+    """CREATE TABLE assets (
+        id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+        project_id TEXT NOT NULL REFERENCES projects(id),
+        kind TEXT NOT NULL CHECK(kind IN ('video', 'audio'))
+    )""",
+    """CREATE TABLE representations (
+        id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+        asset_id TEXT NOT NULL REFERENCES assets(id),
+        revision INTEGER NOT NULL CHECK(revision > 0),
+        sha256 TEXT NOT NULL CHECK(length(sha256) = 64),
+        size_bytes INTEGER NOT NULL CHECK(size_bytes > 0),
+        UNIQUE(asset_id, revision)
+    )""",
+    """CREATE TABLE media_locations (
+        id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+        representation_id TEXT NOT NULL REFERENCES representations(id),
+        locator TEXT NOT NULL,
+        UNIQUE(representation_id, locator)
+    )""",
+    """CREATE TABLE recipe_revisions (
+        id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+        project_id TEXT NOT NULL REFERENCES projects(id),
+        revision INTEGER NOT NULL CHECK(revision > 0),
+        parent_id TEXT REFERENCES recipe_revisions(id),
+        master_id TEXT NOT NULL REFERENCES representations(id),
+        shots_json TEXT NOT NULL,
+        profile_json TEXT NOT NULL,
+        UNIQUE(project_id, revision)
+    )""",
+    """CREATE TABLE recipe_inputs (
+        recipe_id TEXT NOT NULL REFERENCES recipe_revisions(id),
+        representation_id TEXT NOT NULL REFERENCES representations(id),
+        PRIMARY KEY(recipe_id, representation_id)
+    )""",
+    """CREATE TABLE tasks (
+        id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+        job_id TEXT NOT NULL UNIQUE REFERENCES jobs(id),
+        kind TEXT NOT NULL CHECK(kind IN ('synthetic', 'export')),
+        recipe_id TEXT REFERENCES recipe_revisions(id),
+        state TEXT NOT NULL CHECK(state IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
+        UNIQUE(id, job_id),
+        CHECK((kind = 'synthetic' AND recipe_id IS NULL) OR
+              (kind = 'export' AND recipe_id IS NOT NULL))
+    )""",
+)
+_ATTEMPTS_V3 = """CREATE TABLE attempts (
+        id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+        job_id TEXT NOT NULL REFERENCES jobs(id),
+        task_id TEXT NOT NULL,
+        generation INTEGER NOT NULL CHECK(generation > 0),
+        state TEXT NOT NULL CHECK(state IN ('running', 'succeeded', 'failed', 'cancelled', 'interrupted')),
+        UNIQUE(job_id, generation),
+        FOREIGN KEY(task_id, job_id) REFERENCES tasks(id, job_id)
+    )"""
+_ATTEMPTS_INDEX_V3 = "CREATE UNIQUE INDEX attempts_one_running_idx ON attempts(task_id) WHERE state = 'running'"
+_SCHEMA_3 = _MIGRATION_1 + (_MIGRATION_2[0], _MIGRATION_2[2]) + _MEDIA_DDL + (
+    _ATTEMPTS_V3, _ATTEMPTS_INDEX_V3,
 )
 
 
@@ -91,8 +155,34 @@ class SQLiteDatabase:
                 self._validate_schema(connection, _MIGRATION_1 + _MIGRATION_2)
                 if connection.execute("PRAGMA foreign_key_check").fetchone():
                     raise StorageError("invalid foreign keys in migrated database")
-            elif version == SCHEMA_VERSION:
+                version = 2
+            if version == 2:
                 self._validate_schema(connection, _MIGRATION_1 + _MIGRATION_2)
+                if connection.execute("PRAGMA foreign_key_check").fetchone():
+                    raise StorageError("invalid foreign keys in source database")
+                for statement in _MEDIA_DDL:
+                    connection.execute(statement)
+                for job_id, state in connection.execute("SELECT id, state FROM jobs").fetchall():
+                    connection.execute(
+                        "INSERT INTO tasks(id, job_id, kind, state) VALUES (?, ?, 'synthetic', ?)",
+                        (str(uuid4()), job_id, state),
+                    )
+                connection.execute("DROP INDEX attempts_one_running_idx")
+                connection.execute("ALTER TABLE attempts RENAME TO attempts_v2")
+                connection.execute(_ATTEMPTS_V3)
+                connection.execute(
+                    "INSERT INTO attempts(id, job_id, task_id, generation, state) "
+                    "SELECT a.id, a.job_id, t.id, a.generation, a.state "
+                    "FROM attempts_v2 a JOIN tasks t ON t.job_id = a.job_id"
+                )
+                connection.execute("DROP TABLE attempts_v2")
+                connection.execute(_ATTEMPTS_INDEX_V3)
+                connection.execute("PRAGMA user_version = 3")
+                self._validate_schema(connection, _SCHEMA_3)
+                if connection.execute("PRAGMA foreign_key_check").fetchone():
+                    raise StorageError("invalid foreign keys in migrated database")
+            elif version == SCHEMA_VERSION:
+                self._validate_schema(connection, _SCHEMA_3)
             else:
                 raise StorageError("unsupported database schema version")
 

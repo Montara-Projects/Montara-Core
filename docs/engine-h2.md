@@ -20,10 +20,7 @@ privado. Core debe verificar fencing/publicación y permisos; no confundir
 candidato con éxito. No se implementa cancelación física integrada; timeout
 del proceso/grupo es contención local.
 
-H2.1 define los tipos; el wrapper execute importa EngineCandidate canónico
-cuando se integre. El gate aislado llama a la implementación privada usando
-datos estructurales provisionales, no duplica los tipos de dominio. Revisión
-conjunta tras integrar #17. H2 QA usa los medios y funciones oracle de JM #417,
+H2.1 integrado: el gate usa prepare_execution de Core y execute(spec) con tipos canónicos. H2 QA usa los medios y funciones oracle de JM #417,
 pero modifica explícitamente checkpoints de tiempo para velocidad 1 (en
 2.8 s se espera azul, no amarillo); preserva comprobación de color, audio
 997Hz frente a audio de cámara, decode y perfil, sin afirmar calidad 1080p
@@ -35,3 +32,8 @@ del pin JM. No es lock de release V2. Un job, 2 vCPU/8 GiB recomendado como
 hipótesis H0, sin GPU/cloud. No benchmark ni tuning. Los repos externos
 deben ser accesibles y checkout limpio; no enviar credenciales. El workflow
 sube únicamente el informe sintético sin paths, no MP4 ni logs privados.
+
+## Correcciones QA #20 / examen profundo (FER)
+A: aceptar únicamente entradas Core directamente en workspace (sin symlinks, extras o paths externos), reservar engine/ sin sobrescritura; copia adicional por protección ante legado, hash total antes/después. No limpiar intentos. C: cámara plana H264 CFR30 MP4/MOV, origen PTS cero, sin rotación/metadata esférica, duración de stream y PTS decodificados continuos hasta extremo requerido (tolerancia de un tick de timebase, no pérdida de frame); master PCM WAV, conteo de muestras físicas hasta duración requerida, sin margen de 150ms. Rechazar antes del runner. Perfil candidato exacto 30fps y número de frames, duración ±1 frame, decode completo. Validar effective_plan y manifest: no omisiones, proxy, caché, cambio de shot o master. B coordinado con #21; límites defensivos 1000 shots (Core), 200 cámaras, 6h total, extremos ≤24h y múltiplos 100ms. No reinterpretar receta.
+
+El gate usa Core SQLite real con media, receta, claim, prepare_execution y execute; el job queda RUNNING, no simular publicación. Negativas master/cámara 100ms cortos, extra/path ajeno, workspace reutilizado; hashes de staging/originales. Fixture JM sintético, no prueba calidad nativa 1080p. No se cambia V1.

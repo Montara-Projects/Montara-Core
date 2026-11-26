@@ -1,6 +1,7 @@
 """H2 private export adapter. Core retains authorization, fencing and publication."""
 from __future__ import annotations
 
+from fractions import Fraction
 import hashlib
 import json
 import os
@@ -9,6 +10,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import wave
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -71,8 +73,9 @@ def _plan(spec):
                          "master_start_sec": elapsed / 1000,
                          "playback_speed": 1})
         elapsed += b - a
-    if not segments:
-        raise EngineExecutionError("Empty recipe")
+    if (not segments or len(segments) > 1000 or len(cameras) > 200
+            or elapsed > 21_600_000 or any(s.end_ms > 86_400_000 for s in spec.shots)):
+        raise EngineExecutionError("Recipe exceeds initial renderer limits")
     recipe = {"version": 1, "engine": ENGINE_REVISION, "platform": "youtube",
               "sources": [{"key": key} for key in cameras.values()],
               "segments": segments}
@@ -87,6 +90,91 @@ def _copy_verified(item, destination):
     shutil.copyfile(source, destination)
     if destination.stat().st_size != item.size_bytes or _digest(destination) != item.sha256:
         raise EngineExecutionError("Materialized input changed")
+
+def _probe(path, *args):
+    result = subprocess.run(["ffprobe", "-v", "error", *args, "-of", "json", str(path)],
+                            capture_output=True, text=True, timeout=180, check=True)
+    if result.stderr.strip():
+        raise EngineExecutionError("Source probe reported decode errors")
+    return json.loads(result.stdout)
+
+
+def _check_master(path, duration_ms):
+    """PCM WAV: require actual sample frames, not a padded container duration."""
+    info = _probe(path, "-show_streams", "-show_format")
+    streams = info["streams"]
+    if (len(streams) != 1 or streams[0]["codec_type"] != "audio"
+            or not streams[0]["codec_name"].startswith("pcm_")
+            or info["format"]["format_name"] != "wav"):
+        raise EngineExecutionError("H2 master requires one PCM WAV audio stream")
+    with wave.open(str(path), "rb") as master:
+        rate = master.getframerate()
+        required = (duration_ms * rate + 999) // 1000
+        stride = master.getnchannels() * master.getsampwidth()
+        if master.getnframes() < required:
+            raise EngineExecutionError("Master does not cover recipe samples")
+        remaining = required
+        while remaining:
+            n = min(remaining, 65536)
+            data = master.readframes(n)
+            if len(data) != n * stride:
+                raise EngineExecutionError("Master PCM is truncated")
+            remaining -= n
+
+
+def _check_camera(path, end_ms):
+    """H2 flat CFR30: verify decoded PTS coverage, no 150ms allowance."""
+    info = _probe(path, "-show_streams", "-show_format")
+    videos = [s for s in info["streams"] if s["codec_type"] == "video"]
+    if len(videos) != 1:
+        raise EngineExecutionError("H2 camera requires one video stream")
+    stream = videos[0]
+    if (stream["codec_name"] != "h264" or stream["avg_frame_rate"] != "30/1"
+            or stream["r_frame_rate"] != "30/1"
+            or Fraction(stream.get("start_time", "0")) != 0
+            or stream["width"] < 320 or stream["height"] < 240
+            or stream["width"] == 2 * stream["height"]
+            or any(s.get("rotation", 0) or "spherical" in s.get("side_data_type", "").lower()
+                   for s in stream.get("side_data_list", []))
+            or stream.get("tags", {}).get("rotate", "0") != "0"):
+        raise EngineExecutionError("Unsupported H2 camera (flat H264 CFR30 required)")
+    required = end_ms * 30 // 1000
+    timebase = Fraction(stream["time_base"])
+    if Fraction(stream["duration_ts"]) * timebase < Fraction(end_ms, 1000):
+        raise EngineExecutionError("Camera does not cover recipe interval")
+    frames = _probe(path, "-select_streams", "v:0", "-show_frames",
+                    "-show_entries", "frame=best_effort_timestamp")["frames"]
+    if len(frames) < required:
+        raise EngineExecutionError("Camera decoded frames do not cover recipe interval")
+    for index, frame in enumerate(frames[:required]):
+        if abs(Fraction(frame["best_effort_timestamp"]) * timebase - Fraction(index, 30)) > timebase:
+            raise EngineExecutionError("Camera timeline is not contiguous CFR30")
+
+
+def _verify_manifest(root, recipe, sources, master):
+    """Treat inherited omissions/proxy fallback as a failed candidate."""
+    project = root / "work" / "edit.zuckervid"
+    report = json.loads((project / "artifacts" / "export_manifest.json").read_text())
+    effective = Path(report["effective_plan_path"])
+    if not effective.resolve().is_relative_to(project.resolve()):
+        raise EngineExecutionError("Engine manifest escaped workspace")
+    plan = json.loads(effective.read_text())
+    actual = plan["segments"]
+    if (report.get("optional_omissions") or report["audio_source"] != "master"
+            or plan["inputs"]["master"]["path"] != str(master)
+            or len(actual) != len(recipe["segments"])):
+        raise EngineExecutionError("Engine changed required recipe inputs")
+    for wanted, got in zip(recipe["segments"], actual):
+        if (got.get("placeholder") or got.get("source_path") != sources[str(wanted["source"])]
+                or got.get("clip_path") != sources[str(wanted["source"])]
+                or any(abs(float(got.get(key, -1)) - wanted[key]) > 1e-6
+                       for key in ("clip_start_sec", "duration_sec", "master_start_sec", "playback_speed"))):
+            raise EngineExecutionError("Engine changed required shot")
+    stats = report["performance"]["segments"]
+    if (len(stats) != len(actual)
+            or any(s["rendered_from"] not in ("original", "stream_copy") or s["cached"] for s in stats)
+            or any("proxy fallback" in w.lower() for w in report.get("warnings", []))):
+        raise EngineExecutionError("Engine used unapproved fallback or cache")
 
 
 class ZuckerEngineAdapter:
@@ -106,6 +194,14 @@ class ZuckerEngineAdapter:
         return EngineCandidate(**self._render(spec))
 
     def _render(self, spec):
+        try:
+            return self._render_checked(spec)
+        except EngineExecutionError:
+            raise
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, EOFError, wave.Error) as exc:
+            raise EngineExecutionError("Engine input, execution or candidate verification failed") from exc
+
+    def _render_checked(self, spec):
         """Private implementation, independently testable while H2.1 is in flight."""
         if sys.platform != "linux":
             raise EngineExecutionError("Only isolated Linux is supported in H2")
@@ -115,11 +211,18 @@ class ZuckerEngineAdapter:
         workspace = spec.workspace
         if (not workspace.is_absolute() or workspace.is_symlink()
                 or not workspace.is_dir() or workspace.resolve() != workspace
-                or any(workspace.iterdir())):
-            raise EngineExecutionError("Attempt requires an empty private workspace")
+                or not workspace.is_absolute()):
+            raise EngineExecutionError("Attempt requires a private workspace")
+        paths = {item.path for item in inputs.values()}
+        if (len(paths) != len(inputs) or set(workspace.iterdir()) != paths
+                or any(p.parent != workspace or p.is_symlink() or not p.is_file() for p in paths)):
+            raise EngineExecutionError("Attempt workspace must contain only staged Core inputs")
         # Core provides exclusive workspace; no retry overwrites prior bytes.
         root = workspace / "engine"
-        root.mkdir(mode=0o700)
+        try:
+            root.mkdir(mode=0o700)
+        except FileExistsError:
+            raise EngineExecutionError("Attempt engine workspace already reserved") from None
         layout = root / "runner"
         layout.mkdir(mode=0o700)
         for name in ("local_video.py", "video_recipe.py"):
@@ -137,7 +240,14 @@ class ZuckerEngineAdapter:
             _copy_verified(item, dest)
             sources[str(key)] = str(dest)
         master = media / "master.wav"
-        _copy_verified(inputs[spec.master_representation_id], master)
+        master_input = inputs[spec.master_representation_id]
+        if master_input.path.suffix.lower() != ".wav":
+            raise EngineExecutionError("H2 master must be PCM WAV")
+        _copy_verified(master_input, master)
+        _check_master(master, duration_ms)
+        for representation, key in cameras.items():
+            required_end = max(s.end_ms for s in spec.shots if s.representation_id == representation)
+            _check_camera(Path(sources[str(key)]), required_end)
         output = root / "candidate.mp4"
         home = root / "home"
         home.mkdir(mode=0o700)
@@ -166,16 +276,24 @@ class ZuckerEngineAdapter:
             if code or output.is_symlink() or not output.is_file() or not output.stat().st_size:
                 raise EngineExecutionError("Engine failed; private diagnostic retained")
             probe = json.loads(subprocess.check_output(
-                ["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(output)],
-                timeout=30))
+                ["ffprobe", "-v", "error", "-count_frames", "-show_streams", "-show_format", "-of", "json", str(output)],
+                timeout=60))
             video = [s for s in probe["streams"] if s["codec_type"] == "video"]
             audio = [s for s in probe["streams"] if s["codec_type"] == "audio"]
             if (len(video) != 1 or len(audio) != 1 or video[0]["codec_name"] != "h264"
                     or audio[0]["codec_name"] != "aac"
                     or (video[0]["width"], video[0]["height"]) != (1920, 1080)
                     or video[0]["avg_frame_rate"] != "30/1"
-                    or abs(float(probe["format"]["duration"]) - duration_ms / 1000) > 0.15):
+                    or int(video[0]["nb_read_frames"]) != duration_ms * 30 // 1000
+                    or abs(float(probe["format"]["duration"]) - duration_ms / 1000) > 1 / 30):
                 raise EngineExecutionError("Candidate profile or duration mismatch")
+            _verify_manifest(root, recipe, sources, master)
+            subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-xerror", "-i", str(output),
+                            "-map", "0:v:0", "-map", "0:a:0", "-f", "null", "-"],
+                           check=True, capture_output=True, timeout=180)
+            for item in inputs.values():
+                if item.path.stat().st_size != item.size_bytes or _digest(item.path) != item.sha256:
+                    raise EngineExecutionError("Staged Core input changed")
             return {"path": output, "sha256": _digest(output), "size_bytes": output.stat().st_size,
                     "engine_version": ENGINE_VERSION, "engine_revision": ENGINE_REVISION}
         except (OSError, subprocess.SubprocessError, ValueError, KeyError) as exc:

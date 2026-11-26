@@ -36,6 +36,13 @@ class EngineMappingTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(EngineExecutionError):
                 _plan(s)
 
+    def test_capacity_bounds(self):
+        for shots in [(NS(representation_id="a",start_ms=0,end_ms=21600100),),
+                      tuple(NS(representation_id="a",start_ms=0,end_ms=100) for _ in range(1001)),
+                      (NS(representation_id="a",start_ms=86400000,end_ms=86400100),)]:
+            s=spec(); s.shots=shots
+            with self.assertRaises(EngineExecutionError): _plan(s)
+
     def test_copy_verifies_full_hash_and_refuses_symlink(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)
