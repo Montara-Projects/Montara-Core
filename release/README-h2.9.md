@@ -81,3 +81,11 @@ Orden de mantenimiento: cerrar entrada proxy y admisión de ciclos; esperar fina
 ## Métricas y límites
 
 Wall monotónico, CPU user/system y RSS máximo de hijo recolectado (no RSS agregado instantáneo), memoria cgroup muestreada cada 200ms y pico global incluye cache/browser/instalación; bytes lógicos de state y delta FS no I/O físico. No benchmark largo ni prueba de CPUQuota propia bajo unidad temporal. Supervisor separado, stop real, piloto externo y DR físico se declaran según evidencia efectiva, no por plantillas.
+
+### Referencias oficiales de Google
+
+- [OpenID Connect y Discovery](https://developers.google.com/identity/openid-connect/openid-connect).
+- [OAuth para aplicaciones web: redirect URI exacta](https://developers.google.com/identity/protocols/oauth2/web-server).
+- [Políticas OAuth, dominios autorizados y HTTPS](https://developers.google.com/identity/protocols/oauth2/policies).
+
+Se utilizará un dominio propio/autorizado; no asumir que un hostname temporal ajeno es elegible ni usar URI no HTTPS para el piloto real.
