@@ -1,0 +1,98 @@
+[
+  {
+    "cgroup_sample_peak_bytes": 600375296,
+    "child_maxrss_kib_cumulative": 181092,
+    "cpu_system_s": 55.114,
+    "cpu_user_s": 20.897,
+    "filesystem_used_delta_bytes": 543928320,
+    "measured_tree_after_bytes": null,
+    "measured_tree_before_bytes": null,
+    "ok": true,
+    "phase": "sources",
+    "wall_s": 154.629
+  },
+  {
+    "cgroup_sample_peak_bytes": 827633664,
+    "child_maxrss_kib_cumulative": 181092,
+    "cpu_system_s": 9.068,
+    "cpu_user_s": 10.908,
+    "filesystem_used_delta_bytes": 198934528,
+    "measured_tree_after_bytes": null,
+    "measured_tree_before_bytes": null,
+    "ok": true,
+    "phase": "python_bootstrap",
+    "wall_s": 20.012
+  },
+  {
+    "cgroup_sample_peak_bytes": 1445625856,
+    "child_maxrss_kib_cumulative": 181092,
+    "cpu_system_s": 27.878,
+    "cpu_user_s": 7.085,
+    "filesystem_used_delta_bytes": 489517056,
+    "measured_tree_after_bytes": null,
+    "measured_tree_before_bytes": null,
+    "ok": true,
+    "phase": "ffmpeg_local_closure",
+    "wall_s": 29.897
+  },
+  {
+    "cgroup_sample_peak_bytes": 1739759616,
+    "child_maxrss_kib_cumulative": 181092,
+    "cpu_system_s": 5.021,
+    "cpu_user_s": 15.073,
+    "filesystem_used_delta_bytes": 162758656,
+    "measured_tree_after_bytes": null,
+    "measured_tree_before_bytes": null,
+    "ok": true,
+    "phase": "python_wheel_closure",
+    "wall_s": 22.711
+  },
+  {
+    "cgroup_sample_peak_bytes": 1678225408,
+    "child_maxrss_kib_cumulative": 181092,
+    "cpu_system_s": 1.334,
+    "cpu_user_s": 4.363,
+    "filesystem_used_delta_bytes": 4014080,
+    "measured_tree_after_bytes": null,
+    "measured_tree_before_bytes": null,
+    "ok": true,
+    "phase": "build_core",
+    "wall_s": 5.468
+  },
+  {
+    "cgroup_sample_peak_bytes": 2636509184,
+    "child_maxrss_kib_cumulative": 181092,
+    "cpu_system_s": 13.512,
+    "cpu_user_s": 49.703,
+    "filesystem_used_delta_bytes": 888832000,
+    "measured_tree_after_bytes": null,
+    "measured_tree_before_bytes": null,
+    "ok": true,
+    "phase": "offline_install",
+    "wall_s": 75.812
+  },
+  {
+    "cgroup_sample_peak_bytes": 3695800320,
+    "child_maxrss_kib_cumulative": 181092,
+    "cpu_system_s": 45.924,
+    "cpu_user_s": 23.79,
+    "filesystem_used_delta_bytes": 825782272,
+    "measured_tree_after_bytes": null,
+    "measured_tree_before_bytes": null,
+    "ok": true,
+    "phase": "qa_browser_setup",
+    "wall_s": 66.203
+  },
+  {
+    "cgroup_sample_peak_bytes": 3514155008,
+    "child_maxrss_kib_cumulative": 181092,
+    "cpu_system_s": 2.889,
+    "cpu_user_s": 4.883,
+    "filesystem_used_delta_bytes": 3014656,
+    "measured_tree_after_bytes": 2843558,
+    "measured_tree_before_bytes": 0,
+    "ok": false,
+    "phase": "browser_supervised_gate",
+    "wall_s": 7.317
+  }
+]
