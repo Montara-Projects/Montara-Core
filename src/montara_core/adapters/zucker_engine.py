@@ -133,7 +133,10 @@ def _check_camera(path, end_ms):
             or stream["r_frame_rate"] != "30/1"
             or Fraction(stream.get("start_time", "0")) != 0
             or stream["width"] < 320 or stream["height"] < 240
-            or stream["width"] == 2 * stream["height"]
+            or not {"mov", "mp4"}.intersection(info["format"]["format_name"].split(","))
+            or Fraction(195, 100) <= Fraction(stream["width"], stream["height"]) <= Fraction(205, 100)
+            or any(marker in json.dumps(info).lower()
+                   for marker in ("equirect", "spherical", "360 video", "insta360"))
             or any(s.get("rotation", 0) or "spherical" in s.get("side_data_type", "").lower()
                    for s in stream.get("side_data_list", []))
             or stream.get("tags", {}).get("rotate", "0") != "0"):
@@ -146,9 +149,13 @@ def _check_camera(path, end_ms):
                     "-show_entries", "frame=best_effort_timestamp")["frames"]
     if len(frames) < required:
         raise EngineExecutionError("Camera decoded frames do not cover recipe interval")
+    previous = None
     for index, frame in enumerate(frames[:required]):
-        if abs(Fraction(frame["best_effort_timestamp"]) * timebase - Fraction(index, 30)) > timebase:
+        timestamp = Fraction(frame["best_effort_timestamp"]) * timebase
+        if ((previous is not None and timestamp <= previous)
+                or abs(timestamp - Fraction(index, 30)) > min(timebase / 2, Fraction(1, 120))):
             raise EngineExecutionError("Camera timeline is not contiguous CFR30")
+        previous = timestamp
 
 
 def _verify_manifest(root, recipe, sources, master):
@@ -202,7 +209,7 @@ class ZuckerEngineAdapter:
             raise EngineExecutionError("Engine input, execution or candidate verification failed") from exc
 
     def _render_checked(self, spec):
-        """Private implementation, independently testable while H2.1 is in flight."""
+        """Execute the canonical staged attempt, without publishing it."""
         if sys.platform != "linux":
             raise EngineExecutionError("Only isolated Linux is supported in H2")
         inputs, cameras, recipe, duration_ms = _plan(spec)
@@ -210,8 +217,7 @@ class ZuckerEngineAdapter:
         _checked_checkout(self.engine_root, ENGINE_REVISION)
         workspace = spec.workspace
         if (not workspace.is_absolute() or workspace.is_symlink()
-                or not workspace.is_dir() or workspace.resolve() != workspace
-                or not workspace.is_absolute()):
+                or not workspace.is_dir() or workspace.resolve() != workspace):
             raise EngineExecutionError("Attempt requires a private workspace")
         paths = {item.path for item in inputs.values()}
         if (len(paths) != len(inputs) or set(workspace.iterdir()) != paths
@@ -262,6 +268,18 @@ class ZuckerEngineAdapter:
                "XDG_CONFIG_HOME": str(home / ".config"), "XDG_CACHE_HOME": str(home / ".cache"),
                "TMPDIR": str(temp), "PYTHONDONTWRITEBYTECODE": "1",
                "LANG": "C.UTF-8", "OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1"}
+        # Refuse probing one toolchain and rendering with another: legacy
+        # resolution also searches fixed locations before PATH.
+        actual_tools = json.loads(subprocess.check_output(
+            [sys.executable, "-I", "-B", "-c",
+             "import json,sys; sys.path.insert(0,sys.argv[1]); "
+             "from core.ffmpeg import tool_status; print(json.dumps(tool_status()))",
+             str(self.engine_root)], cwd=root, env=env, timeout=15))
+        for name in ("ffmpeg", "ffprobe"):
+            selected = shutil.which(name, path=env["PATH"])
+            if (not selected or not actual_tools.get(name + "_path")
+                    or Path(selected).resolve() != Path(actual_tools[name + "_path"]).resolve()):
+                raise EngineExecutionError("Engine and adapter media tools differ")
         try:
             with (root / "render.log").open("xb") as log:
                 process = subprocess.Popen([sys.executable, str(layout / "local_video.py"),
@@ -285,6 +303,8 @@ class ZuckerEngineAdapter:
                     or (video[0]["width"], video[0]["height"]) != (1920, 1080)
                     or video[0]["avg_frame_rate"] != "30/1"
                     or int(video[0]["nb_read_frames"]) != duration_ms * 30 // 1000
+                    or abs(Fraction(audio[0]["duration_ts"]) * Fraction(audio[0]["time_base"])
+                           - Fraction(duration_ms, 1000)) > Fraction(1, 30)
                     or abs(float(probe["format"]["duration"]) - duration_ms / 1000) > 1 / 30):
                 raise EngineExecutionError("Candidate profile or duration mismatch")
             _verify_manifest(root, recipe, sources, master)

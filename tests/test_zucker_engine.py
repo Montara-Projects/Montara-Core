@@ -2,9 +2,10 @@
 from pathlib import Path
 from types import SimpleNamespace as NS
 import unittest
-from montara_core.adapters.zucker_engine import _plan, _copy_verified, EngineExecutionError
+from montara_core.adapters.zucker_engine import _plan, _copy_verified, _verify_manifest, EngineExecutionError
 import tempfile
 import hashlib
+import json
 
 
 def spec():
@@ -58,3 +59,38 @@ class EngineMappingTests(unittest.TestCase):
             link.symlink_to(source)
             item.path=link
             with self.assertRaises(EngineExecutionError): _copy_verified(item,root/"wrong")
+
+    def test_manifest_rejects_changed_source_omission_or_proxy(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            project=root/"work"/"edit.zuckervid"
+            artifacts=project/"artifacts"; artifacts.mkdir(parents=True)
+            effective=project/"effective.json"
+            source=root/"a.mp4"; master=root/"master.wav"
+            shot={"source":0,"clip_start_sec":0,"duration_sec":2,
+                  "master_start_sec":0,"playback_speed":1}
+            recipe={"segments":[shot]}
+            plan={"inputs":{"master":{"path":str(master)}},"segments":[
+                {**shot,"source_path":str(source),"clip_path":str(source)}]}
+            report={"effective_plan_path":str(effective),"audio_source":"master",
+                    "optional_omissions":[],"warnings":[],
+                    "performance":{"segments":[{"rendered_from":"original","cached":False}]}}
+            def write():
+                effective.write_text(json.dumps(plan))
+                (artifacts/"export_manifest.json").write_text(json.dumps(report))
+            write()
+            _verify_manifest(root,recipe,{"0":str(source)},master)
+            for key in ("path","omission","proxy","cache","time","master","repair-warning"):
+                with self.subTest(key=key):
+                    old_plan=json.dumps(plan); old_report=json.dumps(report)
+                    if key=="path": plan["segments"][0]["source_path"]="/foreign"
+                    elif key=="omission": report["optional_omissions"]=[{"shot":1}]
+                    elif key=="proxy": report["performance"]["segments"][0]["rendered_from"]="proxy"
+                    elif key=="cache": report["performance"]["segments"][0]["cached"]=True
+                    elif key=="time": plan["segments"][0]["clip_start_sec"]=1
+                    elif key=="master": plan["inputs"]["master"]["path"]="/foreign"
+                    else: report["warnings"]=["Original render failed; using proxy fallback"]
+                    write()
+                    with self.assertRaises(EngineExecutionError):
+                        _verify_manifest(root,recipe,{"0":str(source)},master)
+                    plan=json.loads(old_plan); report=json.loads(old_report)

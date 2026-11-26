@@ -28,7 +28,7 @@ def main():
     core=build_core(config)
     owner=core.projects.provision_account().id
 
-    def prepare(name, *, short_master=False, short_camera=False):
+    def prepare(name, *, short_master=False, short_camera=False, false_master=False):
         project=core.projects.create_project(owner,name).id
         folder=originals/project
         folder.mkdir()
@@ -38,10 +38,17 @@ def main():
             (folder/"master.wav").unlink()
             media.execute(["ffmpeg","-v","error","-i",str(bank/"master.wav"),"-t","5.9",
                            "-c:a","pcm_s16le",str(folder/"master.wav")])
+        if false_master:
+            shutil.copyfile(bank/"camera-a.mp4",folder/"master.wav")
         if short_camera:
-            (folder/"camera-a.mp4").unlink()
+            # Misleading container duration: video ends at 5.9, audio at 6.
+            short=out/"short-video.mp4"
             media.execute(["ffmpeg","-v","error","-i",str(bank/"camera-a.mp4"),"-t","5.9",
-                           "-c:v","libx264","-threads","2","-c:a","aac",str(folder/"camera-a.mp4")])
+                           "-an","-c:v","libx264","-threads","2",str(short)])
+            (folder/"camera-a.mp4").unlink()
+            media.execute(["ffmpeg","-v","error","-i",str(short),"-i",str(bank/"camera-a.mp4"),
+                           "-map","0:v:0","-map","1:a:0","-c","copy",str(folder/"camera-a.mp4")])
+            assert float(media.probe(folder/"camera-a.mp4")["format"]["duration"])>=6.0
         _,a,_=core.media.register_original(owner,project,"video","camera-a.mp4")
         _,b,_=core.media.register_original(owner,project,"video","camera-b.mp4")
         _,m,_=core.media.register_original(owner,project,"audio","master.wav")
@@ -60,6 +67,7 @@ def main():
     for name,opts,expected in [
         ("short-master",{"short_master":True},"Master does not cover"),
         ("short-camera",{"short_camera":True},"Camera does not cover"),
+        ("false-master",{"false_master":True},"H2 master requires"),
     ]:
         bad,ref,_,_=prepare(name,**opts)
         try: adapter.execute(bad)
@@ -69,6 +77,9 @@ def main():
         assert not (bad.workspace/"engine"/"candidate.mp4").exists()
         assert not (bad.workspace/"engine"/"request.json").exists()
         assert all(media.sha256(i.path)==i.sha256 for i in bad.inputs)
+        try: adapter.execute(bad)
+        except EngineExecutionError: pass
+        else: raise AssertionError("Partial workspace reuse accepted")
         core.jobs.fail(ref)
         negatives[name]="PASS"
     spec,ref,job,folder=prepare("positive")
