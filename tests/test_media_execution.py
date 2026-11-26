@@ -140,8 +140,11 @@ class MediaExecutionTests(unittest.TestCase):
                       (Shot(self.cam.id, True, 100),)):
             with self.subTest(shots=shots), self.assertRaises(InvalidValue):
                 self.recipe(shots=shots)
-        with self.assertRaises(MediaNotFound):
+        with self.assertRaises(TransitionError):
             self.core.media.save_recipe(self.a, self.pa, None, self.cam2.id, self.shots)
+        with self.assertRaises(MediaNotFound):
+            self.core.media.save_recipe(self.a, self.pa, None, self.cam2.id,
+                                        (Shot(self.cam.id, 0, 1000),))
         with self.assertRaises(InvalidValue):
             self.core.media.save_recipe(self.a, self.pa, None, self.master.id, self.shots,
                                         OutputProfile(width=1280))
