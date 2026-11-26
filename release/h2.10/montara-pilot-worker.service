@@ -1,0 +1,25 @@
+[Unit]
+Description=Montara CORE V2 DEVELOPMENT one-shot worker
+[Service]
+Type=exec
+User=montara-pilot
+Group=montara-pilot
+WorkingDirectory=/var/lib/montara-pilot
+Environment=HOME=/var/lib/montara-pilot/runtime-home
+Environment=PATH=/opt/montara-pilot/current/media-tools:/usr/bin:/bin
+ExecStart=/opt/montara-pilot/current/pilot-runtime/venv/bin/python -I -m montara_core --config /etc/montara-pilot/core.toml --worker-once
+Restart=no
+KillMode=control-group
+SendSIGKILL=yes
+TimeoutStopSec=10s
+RuntimeMaxSec=600s
+MemoryMax=4G
+CPUQuota=200%
+TasksMax=256
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/montara-pilot
+InaccessiblePaths=/etc/montara-pilot/client-secret
+UMask=0077
