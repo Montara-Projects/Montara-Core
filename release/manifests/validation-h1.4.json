@@ -1,0 +1,23 @@
+{
+  "checks": {
+    "bad_hash_rejected": true,
+    "clean_install": true,
+    "compatible_rollback": true,
+    "external_config_unchanged": true,
+    "incompatible_rollback_rejected": true,
+    "original_suite": true,
+    "reinstall_no_drift": true,
+    "roll_forward": true
+  },
+  "foreign_key_check": "ok",
+  "incompatible_commit": "c9746579acb2a623e340733f3b9b49ab3be8e247",
+  "later_records_preserved": 4,
+  "limits": "reference in temporary workspace; no production deployment, no Engine included",
+  "normalized_tree_equal": true,
+  "previous_commit": "329b34d1c4ace6cdf43624cd2d1f6ac1937f333d",
+  "schema": 2,
+  "second_wheel_sha256": "672c5907d97ff6a2577ff0e85fd3baed664530fb210d73ffaf0aac4ee8e86128",
+  "source_commit": "2d5f2fce87838317d717f235ff3675c553755304",
+  "sqlite_integrity": "ok",
+  "wheel_bytes_equal": true
+}
