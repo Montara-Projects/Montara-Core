@@ -13,7 +13,8 @@ class SQLiteCoreStore(SQLiteProjectStore, SQLiteJobStore, SQLiteMediaStore, SQLi
     """All ports share one initialized database; no new persistence authority."""
 
     def __init__(self, path: Path, local: LocalMedia | None = None,
-                 artifact_root: Path | None = None) -> None:
+                 artifact_root: Path | None = None, pilot=None) -> None:
         self._local = local
         self._artifact_root = artifact_root
+        self._pilot = pilot
         super().__init__(path)

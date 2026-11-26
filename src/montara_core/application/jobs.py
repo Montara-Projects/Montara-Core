@@ -1,6 +1,6 @@
 """Trusted internal job and worker operations; no public authentication."""
 from montara_core.application.job_ports import JobStore
-from montara_core.domain.jobs import AttemptRef, Job, Task, validate_key, validate_result
+from montara_core.domain.jobs import AttemptRef, ExportClaim, Job, Task, validate_key, validate_result
 from montara_core.domain.projects import InvalidValue, validate_id
 
 
@@ -29,6 +29,17 @@ class JobService:
     def claim(self, synthetic_only: bool = False) -> AttemptRef | None:
         """Trusted worker only; at most one running job globally."""
         return self._store.claim(synthetic_only)
+
+    def claim_export(self) -> ExportClaim | None:
+        """Trusted pilot worker only; owner is resolved atomically by Core."""
+        return self._store.claim_export()
+
+    def running_export(self) -> ExportClaim | None:
+        return self._store.running_export()
+
+    def current_export(self, attempt_id: str) -> ExportClaim | None:
+        validate_id(attempt_id)
+        return self._store.current_export(attempt_id)
 
     def running_attempt(self) -> AttemptRef | None:
         """Trusted recovery lookup, including a claim whose response was lost."""

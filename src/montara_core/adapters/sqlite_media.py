@@ -17,10 +17,12 @@ from montara_core.domain.media import (
     supports_export_location, validate_recipe,
 )
 from montara_core.domain.projects import InvalidValue, ProjectNotFound
+from montara_core.domain.pilot import FIXTURES, MAX_RECIPES, validate_pilot_recipe, validate_pilot_snapshot
 
 
 class SQLiteMediaStore(SQLiteDatabase):
     _local: LocalMedia | None = None
+    _pilot = None
 
     def _files(self) -> LocalMedia:
         if self._local is None:
@@ -55,12 +57,29 @@ class SQLiteMediaStore(SQLiteDatabase):
         return rep, loc
 
     def register(self, actor, project, kind, locator):
+        if self._pilot is not None and FIXTURES.get(locator) != kind:
+            raise InvalidValue("pilot permits only named fixture media")
         with self._connection() as db:
             self._owner(db, actor, project)
         digest, size = self._files().read(project, locator)
         with self._connection() as db:
             db.execute("BEGIN IMMEDIATE")
             self._owner(db, actor, project)
+            if self._pilot is not None:
+                previous = db.execute(
+                    "SELECT a.id,a.kind,r.id,r.revision,r.sha256,r.size_bytes,l.id "
+                    "FROM assets a JOIN representations r ON r.asset_id=a.id "
+                    "JOIN media_locations l ON l.representation_id=r.id "
+                    "WHERE a.project_id=? AND l.locator=? ORDER BY r.revision DESC",
+                    (project, locator),
+                ).fetchall()
+                if previous:
+                    a, k, r, rev, h, n, loc = previous[0]
+                    if len(previous) != 1 or (k,h,n) != (kind,digest,size):
+                        raise TransitionError("pilot fixture changed; use an authorized new project")
+                    return Asset(a,project,k), Representation(r,a,rev,h,n), MediaLocation(loc,r,locator)
+                if db.execute("SELECT count(*) FROM assets WHERE project_id=?", (project,)).fetchone()[0] >= len(FIXTURES):
+                    raise TransitionError("pilot media limit reached")
             asset = Asset(str(uuid4()), project, kind)
             db.execute("INSERT INTO assets VALUES (?,?,?)", (asset.id, project, kind))
             rep, loc = self._insert_rep(db, asset.id, 1, digest, size, locator)
@@ -146,6 +165,8 @@ class SQLiteMediaStore(SQLiteDatabase):
         return compatible
 
     def save_recipe(self, actor, project, expected, master, shots, profile):
+        if self._pilot is not None:
+            validate_pilot_recipe(shots)
         with self._connection() as db:
             db.execute("BEGIN IMMEDIATE")
             self._owner(db, actor, project)
@@ -155,6 +176,8 @@ class SQLiteMediaStore(SQLiteDatabase):
             ).fetchone()
             if expected != (latest[0] if latest else None):
                 raise TransitionError("obsolete recipe revision")
+            if self._pilot is not None and latest and latest[1] >= MAX_RECIPES:
+                raise TransitionError("pilot recipe revision limit reached")
             inputs = {master: "audio"}
             for shot in shots:
                 if shot.representation_id == master:
@@ -235,6 +258,8 @@ class SQLiteMediaStore(SQLiteDatabase):
             recipe = self._active_recipe(db, attempt)
             rows = self._validated_recipe_locations(db, recipe)
             document = self._snapshot(db, attempt.task_id, recipe)
+            if self._pilot is not None:
+                validate_pilot_snapshot(document)
         expected = {recipe.master_representation_id, *(s.representation_id for s in recipe.shots)}
         if {row[0] for row in rows} != expected:
             raise StorageError("missing authorized recipe inputs")
@@ -272,3 +297,24 @@ class SQLiteMediaStore(SQLiteDatabase):
         except BaseException:
             shutil.rmtree(workspace)
             raise
+
+    def pilot_summary(self, actor, project):
+        """Owner-scoped bounded read model; no filesystem locations returned."""
+        if self._pilot is None:
+            raise ProjectNotFound("project not found")
+        with self._connection() as db:
+            db.execute("BEGIN")
+            self._owner(db, actor, project)
+            media = db.execute(
+                "SELECT r.id,a.kind,l.locator,r.size_bytes FROM representations r "
+                "JOIN assets a ON a.id=r.asset_id JOIN media_locations l ON l.representation_id=r.id "
+                "WHERE a.project_id=? ORDER BY r.revision DESC,r.id LIMIT 20", (project,)
+            ).fetchall()
+            latest = db.execute("SELECT * FROM recipe_revisions WHERE project_id=? ORDER BY revision DESC LIMIT 1",
+                                (project,)).fetchone()
+            jobs = db.execute("SELECT id,state,generation FROM jobs WHERE project_id=? ORDER BY rowid DESC LIMIT 8",
+                              (project,)).fetchall()
+            return {"media": [{"id":r[0],"kind":r[1],"label":r[2],"size_bytes":r[3]}
+                              for r in media if FIXTURES.get(r[2])==r[1]],
+                    "recipe": asdict(self._recipe(latest)) if latest else None,
+                    "jobs": [{"id":j[0],"state":j[1],"generation":j[2]} for j in jobs]}

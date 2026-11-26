@@ -4,6 +4,7 @@ from pathlib import Path
 import tomllib
 from urllib.parse import urlsplit
 from montara_core.application.identity import OIDCSettings
+from montara_core.domain.pilot import PilotSettings
 
 
 class ConfigError(ValueError):
@@ -18,6 +19,7 @@ class Config:
     workspace_root: Path | None = None
     artifact_root: Path | None = None
     oidc: OIDCSettings | None = None
+    pilot: PilotSettings | None = None
 
 
 def load_config(path: Path | None = None) -> Config:
@@ -28,7 +30,7 @@ def load_config(path: Path | None = None) -> Config:
             data = tomllib.load(stream)
     except (OSError, ValueError) as exc:
         raise ConfigError("configuration is unreadable or invalid TOML") from exc
-    if set(data) - {"http", "storage", "oidc"}:
+    if set(data) - {"http", "storage", "oidc", "pilot"}:
         raise ConfigError("unknown configuration section")
     http = data.get("http", {})
     if not isinstance(http, dict) or set(http) - {"port"}:
@@ -66,8 +68,40 @@ def load_config(path: Path | None = None) -> Config:
         if not all((sqlite_path, media_root, workspace_root, artifact_root)):
             raise ConfigError("OIDC requires configured database and all private roots")
         oidc = _oidc(data["oidc"])
+    pilot = None
+    if "pilot" in data:
+        if oidc is None:
+            raise ConfigError("pilot requires OIDC")
+        pilot = _pilot(data["pilot"], oidc.issuer)
+        if sqlite_path.resolve() != sqlite_path:
+            raise ConfigError("pilot database must have a canonical path")
+        for source in (pilot.renderer_root, pilot.engine_root):
+            if any(source.is_relative_to(root) or root.is_relative_to(source)
+                   for root in (media_root, workspace_root, artifact_root)) or sqlite_path.is_relative_to(source):
+                raise ConfigError("pilot checkouts must be separate from mutable state")
+        if (pilot.renderer_root.is_relative_to(pilot.engine_root)
+                or pilot.engine_root.is_relative_to(pilot.renderer_root)):
+            raise ConfigError("pilot checkouts must be separate")
     return Config(port=port, sqlite_path=sqlite_path, media_root=media_root,
-                  workspace_root=workspace_root, artifact_root=artifact_root, oidc=oidc)
+                  workspace_root=workspace_root, artifact_root=artifact_root, oidc=oidc, pilot=pilot)
+
+
+def _pilot(data, issuer):
+    required = {"allowed_subjects", "renderer_root", "engine_root"}
+    if not isinstance(data, dict) or not required <= set(data) or set(data) - required - {"render_timeout_sec"}:
+        raise ConfigError("invalid pilot configuration")
+    subjects = data["allowed_subjects"]
+    if (not isinstance(subjects, list) or not 1 <= len(subjects) <= 4
+            or any(not isinstance(s, str) or not 1 <= len(s) <= 255
+                   or any(ord(c) < 33 or ord(c) > 126 for c in s) for s in subjects)
+            or len(set(subjects)) != len(subjects)):
+        raise ConfigError("pilot requires one to four distinct admitted subjects")
+    timeout = data.get("render_timeout_sec", 180)
+    if type(timeout) is not int or not 30 <= timeout <= 300:
+        raise ConfigError("pilot render timeout must be 30–300 seconds")
+    return PilotSettings(issuer, tuple(subjects), _root(data["renderer_root"]),
+                         _root(data["engine_root"]), timeout)
+
 
 
 def _https(value, origin=False):

@@ -16,15 +16,32 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Montara Core V2 development health")
     parser.add_argument("--config", type=Path, help="explicit external TOML file")
     parser.add_argument("--check-config", action="store_true", help="validate without listening")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--worker-once", action="store_true", help="claim and execute one admitted export")
+    modes.add_argument("--worker-recover", metavar="ATTEMPT", help="recover an exact quiescent export")
+    modes.add_argument("--worker-interrupt", metavar="ATTEMPT", help="declare an exact quiescent attempt interrupted")
     args = parser.parse_args(argv)
     try:
         config = load_config(args.config)
     except ConfigError as exc:
         print(f"Configuration error: {exc}", file=sys.stderr)
         return 2
+    worker = args.worker_once or args.worker_recover is not None or args.worker_interrupt is not None
+    if args.check_config and worker:
+        print("Configuration error: conflicting modes", file=sys.stderr)
+        return 2
     if args.check_config:
         print("Configuration valid")
         return 0
+    if worker:
+        if config.pilot is None:
+            print("Configuration error: pilot worker requires [pilot]", file=sys.stderr)
+            return 2
+        if sys.platform != "linux":
+            print("Configuration error: pilot worker requires Linux", file=sys.stderr)
+            return 2
+        from montara_core.bootstrap.worker import run_worker
+        return run_worker(config, recover=args.worker_recover, interrupt=args.worker_interrupt)
     core = None
     auth = None
     if config.sqlite_path is not None:
@@ -32,13 +49,15 @@ def main(argv: list[str] | None = None) -> int:
             core = build_core(config)
             if config.oidc is not None:
                 provider = OIDCProvider(config.oidc, read_client_secret(config.oidc.client_secret_file))
-                auth = AuthenticationService(core.identity, provider)
+                auth = AuthenticationService(core.identity, provider, admitted=(
+                    {(config.pilot.issuer, sub) for sub in config.pilot.allowed_subjects}
+                    if config.pilot else None))
         except (StorageError, AuthError) as exc:
             print(f"Storage error: {exc}", file=sys.stderr)
             return 1
     try:
         server = (create_authenticated_server(config.port, config.oidc.public_origin,
-                                              core, auth) if auth is not None
+                                              core, auth, pilot=config.pilot is not None) if auth is not None
                   else create_server(config.port))
     except OSError:
         print("Startup error: unable to bind local health server", file=sys.stderr)

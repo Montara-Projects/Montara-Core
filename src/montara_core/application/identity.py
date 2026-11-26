@@ -1,5 +1,6 @@
 """OIDC browser ceremony and bounded opaque server-side sessions."""
 from dataclasses import dataclass
+from collections import deque
 import base64
 import hashlib
 from pathlib import Path
@@ -56,12 +57,15 @@ class AuthenticationService:
     SESSION_TTL = 3600
     CAPACITY = 1024
 
-    def __init__(self, identities: IdentityStore, provider: Provider):
+    def __init__(self, identities: IdentityStore, provider: Provider, *, admitted=None):
         self._identities = identities
         self._provider = provider
+        self._admitted = frozenset(admitted) if admitted is not None else None
         self._pending = {}
         self._sessions = {}
         self._lock = threading.Lock()
+        self._login_events = deque()
+        self._mutation_events = {}
 
     @staticmethod
     def _token():
@@ -80,6 +84,20 @@ class AuthenticationService:
                 if table[key].expires <= now:
                     del table[key]
 
+    @staticmethod
+    def _rate(events, limit):
+        now = time.monotonic()
+        while events and events[0] <= now - 60:
+            events.popleft()
+        if len(events) >= limit:
+            raise AuthError("pilot rate limit reached")
+        events.append(now)
+
+    def allow_mutation(self, actor):
+        if self._admitted is not None:
+            with self._lock:
+                self._rate(self._mutation_events.setdefault(actor, deque()), 30)
+
     def begin(self, previous=None):
         browser, state, nonce, verifier = (self._token() for _ in range(4))
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode("ascii")
@@ -87,6 +105,8 @@ class AuthenticationService:
         with self._lock:
             self._prune()
             self._pending.pop(self._key(previous), None)
+            if self._admitted is not None:
+                self._rate(self._login_events, 30)
             if len(self._pending) >= self.CAPACITY:
                 raise AuthError("login capacity reached")
             self._pending[self._key(browser)] = Pending(state, nonce, verifier, time.monotonic()+self.LOGIN_TTL)
@@ -106,6 +126,8 @@ class AuthenticationService:
                 or not isinstance(subject, str) or not 1 <= len(subject) <= 255
                 or any(ord(c) < 33 or ord(c) > 126 for c in subject)):
             raise AuthError("invalid verified identity")
+        if self._admitted is not None and (issuer, subject) not in self._admitted:
+            raise AuthError("identity not admitted")
         account = self._identities.resolve_identity(issuer, subject)
         token = self._token()
         with self._lock:
