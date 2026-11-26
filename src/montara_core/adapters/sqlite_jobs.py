@@ -6,8 +6,9 @@ from montara_core.adapters.sqlite_db import SQLiteDatabase
 from montara_core.adapters.sqlite_media import SQLiteMediaStore
 from montara_core.application.ports import StorageError
 from montara_core.domain.execution import canonical_json
-from montara_core.domain.jobs import AttemptRef, Job, JobNotFound, JobState, Task, TransitionError
+from montara_core.domain.jobs import AttemptRef, ExportClaim, Job, JobNotFound, JobState, Task, TransitionError
 from montara_core.domain.projects import ProjectNotFound
+from montara_core.domain.pilot import MAX_JOBS, validate_pilot_snapshot
 
 
 _COLUMNS = (
@@ -22,6 +23,7 @@ def _job(row: tuple) -> Job:
 
 
 class SQLiteJobStore(SQLiteDatabase):
+    _pilot = None
     @staticmethod
     def _read(connection: sqlite3.Connection, job_id: str, actor: str | None = None) -> Job:
         sql = f"SELECT {_COLUMNS} FROM jobs j JOIN projects p ON p.id = j.project_id LEFT JOIN tasks t ON t.job_id=j.id WHERE j.id = ?"
@@ -71,6 +73,18 @@ class SQLiteJobStore(SQLiteDatabase):
                 if existing[1] != recipe_id:
                     raise TransitionError("request key conflict")
                 return self._read(connection, existing[0], actor)
+            if self._pilot is not None and recipe_id is not None:
+                if connection.execute(
+                    "SELECT count(*) FROM jobs j JOIN projects p ON p.id=j.project_id WHERE p.owner_id=?",
+                    (actor,),
+                ).fetchone()[0] >= MAX_JOBS:
+                    raise TransitionError("pilot job limit reached")
+                if connection.execute(
+                    "SELECT 1 FROM jobs j JOIN projects p ON p.id=j.project_id WHERE p.owner_id=? "
+                    "AND j.state IN ('queued','running')", (actor,)
+                ).fetchone():
+                    raise TransitionError("pilot permits one active job per owner")
+            snapshot = None
             if recipe_id is not None:
                 latest = connection.execute(
                     "SELECT * FROM recipe_revisions WHERE project_id = ? ORDER BY revision DESC LIMIT 1",
@@ -84,9 +98,11 @@ class SQLiteJobStore(SQLiteDatabase):
                     "WHERE newer.asset_id = r.asset_id AND newer.revision > r.revision)", (recipe_id,),
                 ).fetchone():
                     raise TransitionError("recipe references obsolete original")
-                SQLiteMediaStore._validated_recipe_locations(
-                    connection, SQLiteMediaStore._recipe(latest)
-                )
+                recipe = SQLiteMediaStore._recipe(latest)
+                SQLiteMediaStore._validated_recipe_locations(connection, recipe)
+                snapshot = SQLiteMediaStore._snapshot_document(connection, recipe)
+                if self._pilot is not None:
+                    validate_pilot_snapshot(snapshot)
             job_id = str(uuid4())
             connection.execute(
                 "INSERT INTO jobs(id, project_id, request_key, state, generation) "
@@ -98,7 +114,6 @@ class SQLiteJobStore(SQLiteDatabase):
                 (task_id, job_id, "export" if recipe_id is not None else "synthetic", recipe_id),
             )
             if recipe_id is not None:
-                snapshot = SQLiteMediaStore._snapshot_document(connection, SQLiteMediaStore._recipe(latest))
                 connection.execute("INSERT INTO export_snapshots VALUES (?, ?)",
                                    (task_id, canonical_json(snapshot)))
             return self._read(connection, job_id, actor)
@@ -118,18 +133,34 @@ class SQLiteJobStore(SQLiteDatabase):
             return Task(*row[:4], JobState(row[4]))
 
     def claim(self, synthetic_only: bool = False) -> AttemptRef | None:
+        return self._claim(synthetic_only=synthetic_only)
+
+    def claim_export(self) -> ExportClaim | None:
+        if self._pilot is None:
+            raise TransitionError("pilot worker is not configured")
+        return self._claim(export_only=True)
+
+    def _claim(self, synthetic_only=False, export_only=False):
         with self._connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
             if connection.execute("SELECT 1 FROM jobs WHERE state = 'running'").fetchone():
                 return None
-            sql = ("SELECT j.id, j.generation, t.id FROM jobs j JOIN tasks t ON t.job_id = j.id "
-                   "WHERE j.state = 'queued' AND t.state = 'queued'")
+            sql = ("SELECT j.id, j.generation, t.id, p.owner_id FROM jobs j "
+                   "JOIN tasks t ON t.job_id=j.id JOIN projects p ON p.id=j.project_id "
+                   "WHERE j.state='queued' AND t.state='queued'")
+            params = ()
             if synthetic_only:
-                sql += " AND t.kind = 'synthetic'"
-            row = connection.execute(sql + " ORDER BY j.rowid LIMIT 1").fetchone()
+                sql += " AND t.kind='synthetic'"
+            if export_only:
+                marks = ",".join("?" for _ in self._pilot.allowed_subjects)
+                sql += (" AND t.kind='export' AND EXISTS(SELECT 1 FROM export_snapshots s WHERE s.task_id=t.id)"
+                        " AND EXISTS(SELECT 1 FROM oidc_identities i WHERE i.account_id=p.owner_id "
+                        f"AND i.issuer=? AND i.subject IN ({marks}))")
+                params = (self._pilot.issuer, *self._pilot.allowed_subjects)
+            row = connection.execute(sql + " ORDER BY j.rowid LIMIT 1", params).fetchone()
             if row is None:
                 return None
-            job_id, generation, task_id = row
+            job_id, generation, task_id, owner = row
             ref = AttemptRef(job_id, str(uuid4()), generation + 1, task_id)
             connection.execute(
                 "UPDATE jobs SET state = 'running', generation = ? WHERE id = ?",
@@ -140,7 +171,30 @@ class SQLiteJobStore(SQLiteDatabase):
                 (ref.id, job_id, task_id, ref.generation),
             )
             connection.execute("UPDATE tasks SET state = 'running' WHERE id = ?", (task_id,))
-            return ref
+            return ExportClaim(ref, owner) if export_only else ref
+
+    def running_export(self) -> ExportClaim | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT j.id,a.id,j.generation,a.task_id,p.owner_id FROM jobs j "
+                "JOIN projects p ON p.id=j.project_id JOIN attempts a ON a.job_id=j.id AND a.generation=j.generation "
+                "JOIN tasks t ON t.id=a.task_id AND t.job_id=j.id "
+                "WHERE j.state='running' AND a.state='running' AND t.state='running' AND t.kind='export'"
+            ).fetchone()
+            return ExportClaim(AttemptRef(*row[:4]), row[4]) if row else None
+
+    def current_export(self, attempt_id: str) -> ExportClaim | None:
+        """Exact current attempt, including a successful publication whose response was lost."""
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT j.id,a.id,j.generation,a.task_id,p.owner_id FROM jobs j "
+                "JOIN projects p ON p.id=j.project_id JOIN attempts a ON a.job_id=j.id AND a.generation=j.generation "
+                "JOIN tasks t ON t.id=a.task_id AND t.job_id=j.id "
+                "WHERE a.id=? AND t.kind='export' AND "
+                "((j.state='running' AND t.state='running' AND a.state='running') OR "
+                "(j.state='succeeded' AND t.state='succeeded' AND a.state='succeeded'))", (attempt_id,)
+            ).fetchone()
+            return ExportClaim(AttemptRef(*row[:4]), row[4]) if row else None
 
     def running_attempt(self) -> AttemptRef | None:
         with self._connection() as connection:
@@ -186,6 +240,11 @@ class SQLiteJobStore(SQLiteDatabase):
                 return job  # exact retry replay until next claim
             if job.state != JobState.FAILED:
                 raise TransitionError("job not retryable")
+            if self._pilot is not None and connection.execute(
+                "SELECT 1 FROM jobs j JOIN projects p ON p.id=j.project_id WHERE p.owner_id=? "
+                "AND j.state IN ('queued','running')", (actor,)
+            ).fetchone():
+                raise TransitionError("pilot permits one active job per owner")
             connection.execute("UPDATE jobs SET state = 'queued' WHERE id = ?", (job.id,))
             connection.execute("UPDATE tasks SET state = 'queued' WHERE id = ?", (job.task_id,))
             return self._read(connection, job.id, actor)

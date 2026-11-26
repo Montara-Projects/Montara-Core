@@ -6,6 +6,7 @@ The single-process loopback server is an engineering pilot, not an Internet edge
 from dataclasses import asdict
 from http.cookies import SimpleCookie, CookieError
 from http.server import HTTPServer
+from importlib.resources import files
 import json
 import re
 import shutil
@@ -39,7 +40,7 @@ def _unique(pairs):
     return result
 
 
-def create_authenticated_server(port, origin, core, auth):
+def create_authenticated_server(port, origin, core, auth, *, pilot=False):
     host = urlsplit(origin).netloc
 
     class Handler(HealthHandler):
@@ -50,7 +51,10 @@ def create_authenticated_server(port, origin, core, auth):
         def end_headers(self):
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "no-referrer")
-            self.send_header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'")
+            policy = ("default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; "
+                      "frame-ancestors 'none'; base-uri 'none'; form-action 'none'") if pilot else (
+                      "default-src 'none'; frame-ancestors 'none'; base-uri 'none'")
+            self.send_header("Content-Security-Policy", policy)
             self.send_header("X-Frame-Options", "DENY")
             super().end_headers()
 
@@ -82,7 +86,7 @@ def create_authenticated_server(port, origin, core, auth):
                 self._set_cookie(*cookie)
             self.end_headers()
 
-        def _body(self, keys):
+        def _body(self, keys, actor=None):
             if self.headers.get_all("Origin", []) != [origin]:
                 raise AuthError("origin required")
             if (self.headers.get_all("Content-Type", []) != ["application/json"]
@@ -100,6 +104,8 @@ def create_authenticated_server(port, origin, core, auth):
             body = json.loads(raw, object_pairs_hook=_unique)
             if not isinstance(body, dict) or set(body) != set(keys):
                 raise RequestError("invalid request fields")
+            if pilot and actor is not None:
+                auth.allow_mutation(actor)
             return body
 
         def _dispatch(self, method):
@@ -115,6 +121,18 @@ def create_authenticated_server(port, origin, core, auth):
             path = target.path
             if target.query and path != "/auth/callback":
                 raise RequestError("unexpected query")
+            if pilot and method == "GET" and path in ("/", "/pilot.js", "/pilot.css"):
+                name, content_type = {"/": ("pilot.html", "text/html"),
+                    "/pilot.js": ("pilot.js", "application/javascript"),
+                    "/pilot.css": ("pilot.css", "text/css")}[path]
+                payload = files("montara_core.api").joinpath(name).read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", content_type+"; charset=utf-8")
+                self.send_header("Content-Length", str(len(payload)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(payload)
+                return
             if method == "GET" and path == "/auth/login":
                 pending, url = auth.begin(self._cookie(LOGIN))
                 return self._redirect(url, ((LOGIN, pending, auth.LOGIN_TTL),))
@@ -127,21 +145,25 @@ def create_authenticated_server(port, origin, core, auth):
                     raise AuthError("invalid authorization response")
                 session = auth.complete(self._cookie(LOGIN), query["state"][0],
                                         query["code"][0], self._cookie(SESSION))
-                return self._redirect("/api/me", ((LOGIN, "", 0), (SESSION, session, auth.SESSION_TTL)))
+                return self._redirect("/" if pilot else "/api/me", ((LOGIN, "", 0), (SESSION, session, auth.SESSION_TTL)))
             actor = auth.actor(self._cookie(SESSION))
             if method == "POST" and path == "/auth/logout":
                 self._body(())
                 auth.logout(self._cookie(SESSION))
-                return self._redirect("/auth/login", ((SESSION, "", 0), (LOGIN, "", 0)))
+                return self._redirect("/" if pilot else "/auth/login", ((SESSION, "", 0), (LOGIN, "", 0)))
             if method == "GET" and path == "/api/me":
                 return self._json(200, {"account_id": actor})
             if path == "/api/projects":
                 if method == "GET":
                     return self._json(200, [asdict(p) for p in core.projects.list_projects(actor)])
                 if method == "POST":
-                    body = self._body(("name",))
+                    body = self._body(("name",), actor)
                     return self._json(201, asdict(core.projects.create_project(actor, body["name"])))
             if method == "GET":
+                if pilot:
+                    match = re.fullmatch("/api/projects/"+ID+"/pilot", path)
+                    if match:
+                        return self._json(200, core.media.pilot_summary(actor, match[1]))
                 for pattern, fn in (
                     ("/api/projects/"+ID, core.projects.get_project),
                     ("/api/representations/"+ID, core.media.get_representation),
@@ -170,13 +192,13 @@ def create_authenticated_server(port, origin, core, auth):
             if method == "POST":
                 match = re.fullmatch("/api/projects/"+ID+"/media", path)
                 if match:
-                    body = self._body(("kind", "locator"))
+                    body = self._body(("kind", "locator"), actor)
                     asset, representation, _ = core.media.register_original(
                         actor, match[1], body["kind"], body["locator"])
                     return self._json(201, {"asset": asdict(asset), "representation": asdict(representation)})
                 match = re.fullmatch("/api/projects/"+ID+"/recipes", path)
                 if match:
-                    body = self._body(("expected_revision", "master", "shots"))
+                    body = self._body(("expected_revision", "master", "shots"), actor)
                     if not isinstance(body["shots"], list) or not 1 <= len(body["shots"]) <= 1000:
                         raise RequestError("invalid shots")
                     shots = tuple(Shot(**s) for s in body["shots"])
@@ -184,7 +206,7 @@ def create_authenticated_server(port, origin, core, auth):
                     return self._json(201, asdict(recipe))
                 match = re.fullmatch("/api/projects/"+ID+"/jobs", path)
                 if match:
-                    body = self._body(("key", "recipe_id"))
+                    body = self._body(("key", "recipe_id"), actor)
                     if not isinstance(body["recipe_id"], str):
                         raise RequestError("export recipe required")
                     return self._json(201, asdict(core.jobs.create_job(

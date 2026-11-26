@@ -52,6 +52,7 @@ class TestIdP:
         self.secret = secrets.token_urlsafe(32)
         self.client = "engineering-test-client"
         self.origin = "https://montara.test"
+        self.browser_enabled = False
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -64,6 +65,18 @@ class TestIdP:
                 self.wfile.write(payload)
 
             def do_GET(self):
+                if urlsplit(self.path).path == "/authorize" and owner.browser_enabled:
+                    # Test-only browser account selection; no real credentials.
+                    from http.cookies import SimpleCookie
+                    cookies = SimpleCookie(self.headers.get("Cookie", ""))
+                    subject = cookies.get("fixture-subject")
+                    if subject is None:
+                        return self.reply(400, {"error":"fixture_subject_required"})
+                    state, code = owner.issue(owner.issuer+self.path, subject.value)
+                    self.send_response(303)
+                    self.send_header("Location", owner.origin+"/auth/callback?"+urlencode({"state":state,"code":code}))
+                    self.end_headers()
+                    return
                 if self.path == "/jwks":
                     return self.reply(200, {"keys": owner.keys})
                 if self.path == "/redirect":
@@ -95,7 +108,7 @@ class TestIdP:
         cert, key = root/"test-ca.pem", root/"test-key.pem"
         subprocess.run(["openssl","req","-x509","-newkey","rsa:2048","-nodes",
                         "-keyout",str(key),"-out",str(cert),"-days","1",
-                        "-subj","/CN=localhost","-addext","subjectAltName=IP:127.0.0.1"],
+                        "-subj","/CN=localhost","-addext","subjectAltName=IP:127.0.0.1,DNS:localhost"],
                        check=True, capture_output=True, timeout=30)
         self.server = HTTPServer(("127.0.0.1",0), Handler)
         tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

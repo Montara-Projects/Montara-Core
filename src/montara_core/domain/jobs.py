@@ -67,3 +67,9 @@ def validate_result(result: str) -> None:
     if (not isinstance(result, str) or not 1 <= len(result) <= 256
             or any(ord(c) < 32 or ord(c) == 127 for c in result)):
         raise InvalidValue("invalid synthetic result")
+
+
+@dataclass(frozen=True)
+class ExportClaim:
+    attempt: AttemptRef
+    owner_id: str

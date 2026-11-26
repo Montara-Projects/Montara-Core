@@ -21,3 +21,10 @@ port = 8080
 # client_id = "REPLACE_WITH_V2_CLIENT_ID"
 # client_secret_file = "/path/to/private/client-secret"
 # public_origin = "https://montara-v2.example.invalid"
+
+# H2.8 restricted engineering pilot; requires OIDC and all private storage roots.
+# [pilot]
+# allowed_subjects = ["REPLACE_WITH_VERIFIED_SUBJECT"]
+# renderer_root = "/path/to/pinned-renderer"
+# engine_root = "/path/to/pinned-engine"
+# render_timeout_sec = 180

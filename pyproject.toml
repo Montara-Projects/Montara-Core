@@ -15,3 +15,6 @@ oidc = ["PyJWT[crypto]==2.15.1"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"montara_core.api" = ["pilot.html", "pilot.js", "pilot.css"]

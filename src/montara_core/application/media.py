@@ -52,3 +52,8 @@ class MediaService:
     def prepare_execution(self, attempt: AttemptRef) -> ExecutionSpec:
         """Worker-only: stage verified copies for the exact active attempt."""
         return self._store.prepare_execution(attempt)
+
+    def pilot_summary(self, actor: str, project: str):
+        validate_id(actor)
+        validate_id(project)
+        return self._store.pilot_summary(actor, project)

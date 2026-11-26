@@ -1,9 +1,12 @@
 """Local project persistence; shared SQLite lifecycle."""
 from montara_core.adapters.sqlite_db import SQLiteDatabase
 from montara_core.domain.projects import Account, Project
+from montara_core.domain.jobs import TransitionError
+from montara_core.domain.pilot import MAX_PROJECTS
 
 
 class SQLiteProjectStore(SQLiteDatabase):
+    _pilot = None
     def add_account(self, account: Account) -> None:
         with self._connection() as connection:
             connection.execute("INSERT INTO accounts(id) VALUES (?)", (account.id,))
@@ -16,6 +19,11 @@ class SQLiteProjectStore(SQLiteDatabase):
 
     def add_project(self, project: Project) -> None:
         with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if self._pilot is not None and connection.execute(
+                "SELECT count(*) FROM projects WHERE owner_id=?", (project.owner_id,)
+            ).fetchone()[0] >= MAX_PROJECTS:
+                raise TransitionError("pilot project limit reached")
             connection.execute(
                 "INSERT INTO projects(id, owner_id, name) VALUES (?, ?, ?)",
                 (project.id, project.owner_id, project.name),

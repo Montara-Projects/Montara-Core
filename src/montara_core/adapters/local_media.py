@@ -11,9 +11,10 @@ from montara_core.domain.projects import validate_id
 
 
 class LocalMedia:
-    def __init__(self, media_root: Path, workspace_root: Path):
+    def __init__(self, media_root: Path, workspace_root: Path, *, max_bytes=None):
         self.media_root = media_root
         self.workspace_root = workspace_root
+        self.max_bytes = max_bytes
 
     @contextmanager
     def _open_source(self, project: str, locator: str):
@@ -47,6 +48,8 @@ class LocalMedia:
                 while chunk := source.read(1024 * 1024):
                     digest.update(chunk)
                     size += len(chunk)
+                    if self.max_bytes is not None and size > self.max_bytes:
+                        raise StorageError("pilot media size limit exceeded")
                     if target is not None:
                         target.write(chunk)
             finally:
