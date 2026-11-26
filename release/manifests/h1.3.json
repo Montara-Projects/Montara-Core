@@ -1,0 +1,72 @@
+{
+  "build": {
+    "mode": "no-build-isolation/no-index/no-deps",
+    "pip": "24.0",
+    "python": "3.11.14",
+    "setuptools": "75.8.2",
+    "uv": "0.9.18",
+    "wheel": "0.45.1"
+  },
+  "config": {
+    "external": true,
+    "http_bind": "127.0.0.1",
+    "storage": "absolute path outside release"
+  },
+  "engine": {
+    "candidate_revision": "9af275b18535005e36bd289a68ceb4a1d2f6c506",
+    "redistribution": "not authorized/verified",
+    "runtime_closure": "pending #18",
+    "status": "not_included"
+  },
+  "format": 1,
+  "package": {
+    "filename": "montara_core-0.1.0-py3-none-any.whl",
+    "files": {
+      "montara_core-0.1.0.dist-info/METADATA": "e3600020d0cc394b91ec7842171062ca84b9850e7ffac4ec9cf7fa10c66d92cc",
+      "montara_core-0.1.0.dist-info/RECORD": "1f7b88441e4ba74b64fa1a3b29b4669e27f0acd2d32a12406fb4600c8ab08346",
+      "montara_core-0.1.0.dist-info/WHEEL": "8c1ef367737d84833d69d5bbaa54c0cb270b616f67a5a58a2d1cdaa1570b29c3",
+      "montara_core-0.1.0.dist-info/top_level.txt": "10250f56f2961643f943f0a8b7e30e2bb3f59026d9cc8e09bab38b3d7bc37c2c",
+      "montara_core/__init__.py": "67e276154c73875970f0be381b3dcbf4fe8d529474b01e914ac3a55e1a5bb837",
+      "montara_core/__main__.py": "2aafe941b0c5a9e64d6c9bff58cbaef8a4bfcc38f924ace35b211abd0e225646",
+      "montara_core/adapters/__init__.py": "637bb878da4c809fb1bc7e0996dd85ee9d332d7f5baa52329ba75c84fe83c185",
+      "montara_core/adapters/sqlite_db.py": "f93382aa04f3b8f72fc7e1e182a81b75957de41334683c4a1d957e62bbe859a6",
+      "montara_core/adapters/sqlite_jobs.py": "30325929926b57d5d2773226db199be5a8bd13a55e706267e77515e1fe30f41d",
+      "montara_core/adapters/sqlite_projects.py": "4553cd9fa777353e7e880d03866d94988c0f5203fb246fdd1fa79102d6770771",
+      "montara_core/api/__init__.py": "f93ce92dfdd7dec699035b7474627a4df161b87072dedc580300c17411013422",
+      "montara_core/api/http.py": "c3b8eb7b305c2e1dfb0d1ee46e668217b0c86f6598e7c06a056fdcdec82312c6",
+      "montara_core/application/__init__.py": "1e5dd1421477f093d8463885f0d69577644c6f9960ff6dc1e21347964848e69c",
+      "montara_core/application/health.py": "e7449b285258c801b73088fe567b9c0ad2f7f24d3b5b630856fd0ce8088b1c93",
+      "montara_core/application/job_ports.py": "fcbb12212ad33115266da30ae414779ae4e7650aa8c9046271405988d297eeae",
+      "montara_core/application/jobs.py": "bc9ae7270001b99838b66ed727b76beb0147ca91440528a6e526b85f22098cbc",
+      "montara_core/application/ports.py": "127067183a1a966f8d50c4a5121bb497ba926fd610739c9c30b0fab3970a20e7",
+      "montara_core/application/projects.py": "c07d14d9ed3e0ad8c4e3cd9f3ad979f77409e040d3e7dc792ed0ed412a04710f",
+      "montara_core/application/synthetic_worker.py": "11acb21da79ea85303d8e7d8bfdf209e0a2cf163f732608910a3b54bf8cb3022",
+      "montara_core/bootstrap/__init__.py": "b87ecafaba39b832d734628f5686b76eadd1205286cf9d07a523dd10a287e3aa",
+      "montara_core/bootstrap/config.py": "e1e77534f1260c85c44b78950e8f3c05533fabd68e76c86978c8e4e7c7e90765",
+      "montara_core/bootstrap/jobs.py": "4a8eb44cdf8a8faa6776407b62a121148b3eb8ab0734d06c2e0ce527c2167941",
+      "montara_core/bootstrap/main.py": "fb9acf799596707eedfe43c1296e90431f104d9a98482c1e06d7d800e774a28e",
+      "montara_core/bootstrap/projects.py": "7dfef72fcae6ea5c50c48a7850f66d15c116c9150bcc8a240d2826e363639d27",
+      "montara_core/domain/__init__.py": "ce3a4cf440c8088d949cd14dabdab0f083810d3e11fa1c7c4eb6ebb1d6a0fbe7",
+      "montara_core/domain/jobs.py": "7f1bb796390d36320209f2a40d2b586bf1e805d58c4f4a11654339f0b8efacd9",
+      "montara_core/domain/projects.py": "c849c09e84a546da2ff43bd20be2eddcf262d5e694ce6837b9c78d7fd1dc86d1"
+    },
+    "name": "montara-core",
+    "normalized_tree_sha256": "0411e51e21688bc6c32fb35a57299e2a9ff388b4e15fe9233908c9bcf5743a18",
+    "sha256": "007336c53cf11a11f2ed55dcb26ea8c25f160057830aedbbccde2665367d3464",
+    "version": "0.1.0"
+  },
+  "runtime": {
+    "platform": "Linux x86_64",
+    "python": "3.11.14",
+    "reference_os": "Ubuntu 24.04.5 LTS",
+    "runtime_dependencies": [],
+    "schema": 2,
+    "sqlite": "3.50.4"
+  },
+  "source": {
+    "commit": "329b34d1c4ace6cdf43624cd2d1f6ac1937f333d",
+    "repository": "https://github.com/Montara-Projects/Montara-Core",
+    "source_date_epoch": 1795648166,
+    "tree": "4c9f6c45a1c8f05e684fbea6aa29ff4fafed0c2d"
+  }
+}
