@@ -1,0 +1,29 @@
+[Unit]
+Description=Montara DEVELOPMENT temporary Google enrolment
+Requires=montara-pilot-acl.service
+After=montara-pilot-acl.service
+BindsTo=montara-pilot-acl.service
+Conflicts=montara-pilot-http.service
+[Service]
+Type=exec
+User=montara-pilot-enrol
+Group=montara-pilot-enrol
+SupplementaryGroups=montara-pilot
+WorkingDirectory=/run/montara-pilot-enrol
+Environment=HOME=/run/montara-pilot-enrol
+ExecStart=/opt/montara-pilot/releases/c7e11118d2d1/pilot-runtime/venv/bin/python -I /opt/montara-pilot/control/enrol.py
+Restart=no
+RuntimeMaxSec=600s
+TimeoutStopSec=10s
+KillMode=control-group
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+InaccessiblePaths=/var/lib/montara-pilot /etc/montara-pilot /etc/montara-pilot-ingress
+ReadWritePaths=/run/montara-pilot-enrol
+MemoryMax=256M
+TasksMax=32
+UMask=0077
+StandardOutput=null
+StandardError=null

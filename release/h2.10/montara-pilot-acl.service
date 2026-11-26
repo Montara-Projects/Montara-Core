@@ -1,0 +1,8 @@
+[Unit]
+Description=Montara V2 local origin restriction (exclusive nftables table)
+Before=montara-pilot-ingress.service montara-pilot-enrol.service montara-pilot-http.service
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/nft -f /etc/montara-pilot/acl.nft
+RemainAfterExit=yes
+# Intentionally no ExecStop: retain deny rule until an authorized operator removes it.
