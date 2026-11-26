@@ -1,0 +1,18 @@
+[
+  {
+    "exit": 0,
+    "maxrss_kib": 449624,
+    "same_test_cgroup": true,
+    "system_cpu_s": 11.350404,
+    "user_cpu_s": 57.264833,
+    "wall_s": 33.535
+  },
+  {
+    "exit": 0,
+    "maxrss_kib": 25688,
+    "same_test_cgroup": true,
+    "system_cpu_s": 0.079111,
+    "user_cpu_s": 0.22788799999999998,
+    "wall_s": 0.308
+  }
+]
