@@ -4,12 +4,15 @@ Files and SQLite cannot commit atomically. Intent is committed after a
 verified durable copy, before promotion. The final file is synced before
 the single fenced DB commit. Recovery uses the same intent and bytes.
 """
+from contextlib import contextmanager
+import hashlib
+import os
 import json
 from pathlib import Path
 import re
 from uuid import uuid4
 
-from montara_core.adapters.local_publication import LocalPublication, read_manifest, verify_file
+from montara_core.adapters.local_publication import LocalPublication, read_manifest, verify_file, open_regular, stamp, file_stamp
 from montara_core.adapters.sqlite_db import SQLiteDatabase
 from montara_core.adapters.sqlite_jobs import SQLiteJobStore
 from montara_core.application.ports import StorageError
@@ -246,3 +249,16 @@ class SQLitePublicationStore(SQLiteDatabase):
             if row is None or not row[3]:
                 raise StorageError("committed artifact receipt missing")
         return self._complete(actor, ref)
+
+    @contextmanager
+    def open_artifact(self, actor, job_id):
+        """Verify and stream the very same descriptor, not a user-provided path."""
+        receipt = self.get_artifact(actor, job_id)
+        with open_regular(receipt.path) as stream:
+            before = stamp(os.fstat(stream.fileno()))
+            if (before[2] != receipt.size_bytes
+                    or hashlib.file_digest(stream, "sha256").hexdigest() != receipt.sha256
+                    or stamp(os.fstat(stream.fileno())) != before or file_stamp(receipt.path) != before):
+                raise StorageError("artifact checksum or size mismatch")
+            stream.seek(0)
+            yield receipt, stream

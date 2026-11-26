@@ -22,6 +22,8 @@ jobs:
         run: |
           python -m venv "$RUNNER_TEMP/core-venv"
           "$RUNNER_TEMP/core-venv/bin/python" -m pip install --no-index --no-deps "$RUNNER_TEMP"/wheels/*.whl
+          "$RUNNER_TEMP/core-venv/bin/python" -m pip install "PyJWT[crypto]==2.15.1"
+          "$RUNNER_TEMP/core-venv/bin/python" -m pip check
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/core-venv/bin/python" -I -c 'import pathlib, sys, montara_core; p = pathlib.Path(montara_core.__file__).resolve(); assert p.is_relative_to(pathlib.Path(sys.prefix).resolve()) and "site-packages" in p.parts; print("INSTALLED_PACKAGE=PASS")'
           "$RUNNER_TEMP/core-venv/bin/python" -I -m montara_core --check-config --config "$GITHUB_WORKSPACE/config.example.toml"

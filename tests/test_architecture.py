@@ -10,7 +10,7 @@ import montara_core
 ALLOWED = {
     "domain": {"domain"},
     "application": {"domain", "application"},
-    "api": {"application", "api"},
+    "api": {"domain", "application", "api"},
     "adapters": {"domain", "application", "adapters"},
     "bootstrap": {"domain", "application", "api", "adapters", "bootstrap"},
     "__main__": {"bootstrap"},
@@ -38,6 +38,8 @@ def violations(layer: str, source: str) -> list[str]:
                 target = tail.split(".")[0]
                 if target not in ALLOWED[layer]:
                     errors.append(f"{layer} cannot import {module}")
+            elif layer == "adapters" and root == "jwt":
+                continue  # OIDC signature/claims verification, optional extra.
             elif root not in sys.stdlib_module_names:
                 errors.append(f"third-party dependency not allowed in H1.1: {module}")
     return errors

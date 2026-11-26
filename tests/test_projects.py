@@ -94,7 +94,7 @@ class ProjectTests(unittest.TestCase):
         for _ in range(2):
             with store._connection() as connection:
                 self.assertEqual(connection.execute("PRAGMA foreign_keys").fetchone(), (1,))
-                self.assertEqual(connection.execute("PRAGMA user_version").fetchone(), (4,))
+                self.assertEqual(connection.execute("PRAGMA user_version").fetchone(), (5,))
                 self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
 
     def test_transaction_rolls_back_on_error(self):

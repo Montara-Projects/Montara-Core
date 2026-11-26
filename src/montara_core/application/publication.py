@@ -14,6 +14,7 @@ class PublicationStore(Protocol):
     def publish(self, actor: str, attempt: AttemptRef, candidate: EngineCandidate) -> ArtifactReceipt: ...
     def recover_publication(self, actor: str, attempt: AttemptRef) -> ArtifactReceipt: ...
     def get_artifact(self, actor: str, job_id: str) -> ArtifactReceipt: ...
+    def open_artifact(self, actor: str, job_id: str): ...
 
 
 class PublicationService:
@@ -42,3 +43,8 @@ class PublicationService:
         validate_id(actor)
         validate_id(job_id)
         return self._store.get_artifact(actor, job_id)
+
+    def open_artifact(self, actor: str, job_id: str):
+        validate_id(actor)
+        validate_id(job_id)
+        return self._store.open_artifact(actor, job_id)

@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 from montara_core.adapters.sqlite_core import SQLiteCoreStore
 from montara_core.application.jobs import JobService
+from montara_core.application.identity import IdentityStore
 from montara_core.application.media import MediaService
 from montara_core.application.publication import PublicationService
 from montara_core.adapters.local_media import LocalMedia
@@ -19,6 +20,7 @@ class CoreServices:
     jobs: JobService
     media: MediaService
     publication: PublicationService
+    identity: IdentityStore
 
 
 def build_core(config: Config) -> CoreServices:
@@ -44,4 +46,4 @@ def build_core(config: Config) -> CoreServices:
     store = SQLiteCoreStore(config.sqlite_path, local=local, artifact_root=config.artifact_root)
     media = MediaService(store)
     return CoreServices(ProjectService(store), JobService(store), media,
-                        PublicationService(store, media))
+                        PublicationService(store, media), store)
