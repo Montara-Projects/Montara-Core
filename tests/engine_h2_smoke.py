@@ -14,6 +14,7 @@ from montara_core.bootstrap.config import Config
 from montara_core.bootstrap.core import build_core
 from montara_core.domain.execution import ExecutionSpec, EngineCandidate, Shot
 from montara_core.domain.jobs import JobState
+from montara_core.domain.publication import ArtifactReceipt
 from montara_core.adapters.zucker_engine import ZuckerEngineAdapter, EngineExecutionError, _stage_semantics
 
 
@@ -28,8 +29,9 @@ def main():
     original_manifest=media.verify_inputs(bank)
     originals=out/"originals"
     workspaces=out/"workspaces"
-    originals.mkdir(); workspaces.mkdir()
-    config=Config(sqlite_path=out/"core.db",media_root=originals,workspace_root=workspaces)
+    artifacts=out/"artifacts"
+    originals.mkdir(); workspaces.mkdir(); artifacts.mkdir()
+    config=Config(sqlite_path=out/"core.db",media_root=originals,workspace_root=workspaces,artifact_root=artifacts)
     core=build_core(config)
     owner=core.projects.provision_account().id
 
@@ -150,9 +152,10 @@ def main():
     quiet=rms(samples_at(silent_candidate.path,5.5))
     assert active>100 and quiet<active*.01,(active,quiet)
     assert abs(float(media.probe(silent_candidate.path)["format"]["duration"])-6)<1/30
-    # Test-only terminal failure releases the single job claim; publication
-    # is not implemented. Never mark this positive candidate as succeeded.
-    core.jobs.fail(sref)
+    # Publish the valid authored-silence result too; not a synthetic success.
+    silent_receipt=core.publication.publish(owner,sref,silent_candidate)
+    assert core.jobs.get_job(owner,sjob.id).state==JobState.SUCCEEDED
+    assert media.sha256(silent_receipt.path)==silent_candidate.sha256
 
     spec,ref,job,folder=prepare("positive")
     staged_before={p.path:media.sha256(p.path) for p in spec.inputs}
@@ -174,6 +177,9 @@ def main():
     result=vars(candidate)
     workspace=spec.workspace
     attestation=json.loads((workspace/"engine"/"candidate-manifest.json").read_text())
+    assert attestation["schema"]==2
+    assert attestation["job_id"]==job.id and attestation["task_id"]==ref.task_id
+    assert attestation["snapshot_sha256"]==spec.snapshot_sha256
     assert attestation["recipe_revision_id"]==spec.recipe_revision_id
     assert attestation["attempt_id"]==spec.attempt_id and attestation["generation"]==spec.generation
     assert attestation["candidate"]=={k:v for k,v in result.items() if k!="path"}
@@ -213,13 +219,41 @@ def main():
         pass
     else:
         raise AssertionError("Attempt workspace reused")
+    # Lost adapter response: recover the exact private manifest, then publish.
+    # Verify the published MP4, not merely the renderer's temporary candidate.
+    receipt=core.publication.recover(owner,ref)
+    assert isinstance(receipt,ArtifactReceipt)
+    assert receipt.path.parent==artifacts and receipt.path!=candidate.path
+    assert receipt.sha256==candidate.sha256==media.sha256(receipt.path)
+    assert receipt.snapshot_sha256==spec.snapshot_sha256
+    assert receipt.stage_profile=="stage-engineering-v0"
+    assert core.jobs.get_job(owner,job.id).state==JobState.SUCCEEDED
+    assert core.jobs.get_task(owner,job.id).state==JobState.SUCCEEDED
+    assert core.publication.publish(owner,ref,candidate)==receipt
+    # Reopen from a genuinely separate isolated interpreter and package.
+    reopen_code=(
+        "import sys; from pathlib import Path; from montara_core.bootstrap.config import Config; "
+        "from montara_core.bootstrap.core import build_core; "
+        "from montara_core.domain.jobs import JobState; "
+        "root=Path(sys.argv[1]); c=build_core(Config(sqlite_path=root/'core.db',"
+        "media_root=root/'originals',workspace_root=root/'workspaces',artifact_root=root/'artifacts')); "
+        "r=c.publication.get_artifact(sys.argv[2],sys.argv[3]); "
+        "assert c.jobs.get_job(sys.argv[2],sys.argv[3]).state==JobState.SUCCEEDED; "
+        "assert r.sha256==sys.argv[4]; print('PUBLISHED_REOPEN=PASS')"
+    )
+    assert "PUBLISHED_REOPEN=PASS" in subprocess.check_output(
+        [sys.executable,"-I","-c",reopen_code,str(out),owner,job.id,receipt.sha256],
+        cwd=out,text=True,timeout=30)
+    media.decode(receipt.path)
+    assert media.sha256(receipt.path)==candidate.sha256
     report={k:v for k,v in result.items() if k!="path"}
-    report.update(status="PASS",scope="Core prepare_execution to real Engine candidate; no publication",
+    report.update(status="PASS",scope="Core recipe to real Engine and durable published MP4",
                   duration_sec=float(info["format"]["duration"]),frames=frames,tones=tones,
                   resolution="1920x1080",fps=30,video_codec="h264",audio_codec="aac",
                   full_decode="PASS",originals_unchanged=True,workspace_reuse_rejected=True,
                   ffmpeg=original_manifest["ffmpeg"], canonical_execution_spec=True,
-                  core_job_still_running=True, preflight_negatives=negatives,
+                  core_job_succeeded=True, publication="PASS", published_reopen="PASS", published_digest_verified=True,
+                  preflight_negatives=negatives,
                   stage_semantics=attestation["stage_semantics"], candidate_manifest="PASS",
                   direct_staged_inputs="PASS", authored_silence={"status":"PASS","active_rms":active,"tail_rms":quiet},
                   authorized_bookend_padding={"status":"PASS","intro_rms":intro,"content_rms":content,"outro_rms":outro})

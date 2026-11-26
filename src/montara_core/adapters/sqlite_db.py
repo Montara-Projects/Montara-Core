@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from montara_core.application.ports import StorageError
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _MIGRATION_1 = (
     """CREATE TABLE accounts (
@@ -109,6 +109,24 @@ _SCHEMA_3 = _MIGRATION_1 + (_MIGRATION_2[0], _MIGRATION_2[2]) + _MEDIA_DDL + (
 )
 
 
+# v4 is additive: historical v3 exports have no attributed execution contract.
+_PUBLICATION_DDL = (
+    """CREATE TABLE export_snapshots (
+        task_id TEXT PRIMARY KEY NOT NULL REFERENCES tasks(id),
+        document TEXT NOT NULL
+    )""",
+    """CREATE TABLE artifact_publications (
+        attempt_id TEXT PRIMARY KEY NOT NULL REFERENCES attempts(id),
+        job_id TEXT NOT NULL REFERENCES jobs(id),
+        manifest_json TEXT NOT NULL,
+        staging_token TEXT NOT NULL CHECK(length(staging_token) = 36),
+        committed INTEGER NOT NULL CHECK(committed IN (0, 1))
+    )""",
+    "CREATE UNIQUE INDEX artifact_one_committed_idx ON artifact_publications(job_id) WHERE committed = 1",
+)
+_SCHEMA_4 = _SCHEMA_3 + _PUBLICATION_DDL
+
+
 class SQLiteDatabase:
     def __init__(self, path: Path) -> None:
         self._path = Path(path)
@@ -121,6 +139,7 @@ class SQLiteDatabase:
         connection = None
         try:
             connection = sqlite3.connect(self._path, timeout=5.0)
+            connection.execute("PRAGMA synchronous = FULL")
             connection.execute("PRAGMA foreign_keys = ON")
             if connection.execute("PRAGMA foreign_keys").fetchone() != (1,):
                 raise StorageError("foreign key enforcement unavailable")
@@ -181,8 +200,19 @@ class SQLiteDatabase:
                 self._validate_schema(connection, _SCHEMA_3)
                 if connection.execute("PRAGMA foreign_key_check").fetchone():
                     raise StorageError("invalid foreign keys in migrated database")
-            elif version == SCHEMA_VERSION:
+                version = 3
+            if version == 3:
                 self._validate_schema(connection, _SCHEMA_3)
+                if connection.execute("PRAGMA foreign_key_check").fetchone():
+                    raise StorageError("invalid foreign keys in source database")
+                for statement in _PUBLICATION_DDL:
+                    connection.execute(statement)
+                connection.execute("PRAGMA user_version = 4")
+                self._validate_schema(connection, _SCHEMA_4)
+                if connection.execute("PRAGMA foreign_key_check").fetchone():
+                    raise StorageError("invalid foreign keys in migrated database")
+            elif version == SCHEMA_VERSION:
+                self._validate_schema(connection, _SCHEMA_4)
             else:
                 raise StorageError("unsupported database schema version")
 

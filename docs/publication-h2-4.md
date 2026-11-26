@@ -1,0 +1,30 @@
+# H2.4 — publicación de artefacto recuperable
+[BRAIN #22](https://github.com/Montara-Projects/MONTARA-BRAIN/issues/22), [ADR #415](https://github.com/Montara-Projects/Montara/issues/415#issuecomment-7141340666), [semántica Stage aceptada para ingeniería](https://github.com/Montara-Projects/MONTARA-BRAIN/issues/18#issuecomment-7180213640). No Push/Show, OIDC, cloud, API pública, ni contrato definitivo de producto. Un export, una Task, un resultado lógico. 
+
+## Autoridad y compatibilidad
+
+Core conserva cuentas/proyectos y autoridad Job→Task→Attempt. Job nuevo fija un documento canónico de receta/revisión, shots, master, perfil, inputs Representation SHA/tamaño, stage-engineering-v0 y los pines/versiones explícitos del renderer/Engine; fingerprint SHA256 de JSON canónico, sin rutas. Adapter comprueba ExecutionSpec contra fingerprint y añade job_id/task_id/snapshot_sha256 al manifest privado schema 2, preservando su verificación audiovisual de contenido, effective plan, decode, perfil y semántica. Core no vuelve a decodificar ni ejecuta Engine para publicar: verifica coincidencia estricta del manifest con snapshot persistido, identidad, pines, tamaño y digest real del candidato. Manifest no es firma criptográfica ni permiso por sí solo; adapter/worker y host son confiables, no se aceptan manifests de cliente. Solo ruta exacta workspace/<attempt>/engine/candidate.mp4 y candidate-manifest.json, sin symlinks, archivos regulares. El nombre del workspace es realización local del adapter fijado, no identidad transversal. 
+
+v4 añade export_snapshots y artifact_publications, sin alterar tablas o recetas existentes. Los jobs de v3 se conservan íntegros, sin inventar semántica o pines históricos; export viejo sin snapshot no se ejecuta/publica, puede consultarse/cancelarse según su estado. Nueva solicitud explícita con nueva clave fija snapshot del perfil de ingeniería actual, no reescribe receta. Los synthetic antiguos y sus recibos siguen válidos. Migración transaccional desde versiones anteriores, esquema canónico y FK; rollback a código schema3 incompatible debe rechazarse, no restaurar DB antigua perdiendo escrituras.
+
+## Protocolo de commit local
+
+1. Claim y prepare_execution como antes; worker de confianza puede ejecutar mediante PublicationService.execute(actor, ref, adapter). Owner exacto y estado running comprobados antes de ejecutar y al publicar.
+2. Adapter entrega candidato y attestation en workspace. Core verifica identidad/manifest y copia a nombre aleatorio exclusivo en artifact_root (<attempt>.<token>.partial), calcula SHA256/tamaño durante copia, fsync archivo y directorio. No link a fuente mutable del renderer. El hash y copia se hacen fuera de SQLite write lock.
+3. BEGIN IMMEDIATE: revalidar ownership, Task/Attempt/generation, snapshot y running; insertar intención única del intento con manifest exacto y token de staging; commit. Replay idéntico recupera intención; distinto manifiesto es conflicto. Intento revocado no publica. 
+4. Verificar bytes del staging o del destino ya existente fuera del lock. BEGIN IMMEDIATE, revalidar autoridad/intención, comprobar inode/tamaño/mtime, promover mediante link sin overwrite del fichero Core-owned al nombre definitivo <attempt>.mp4 dentro del mismo FS (no hardlink a original/Engine). fsync directorio. En la misma transacción SQLite: Attempt/Task/Job succeeded, Job.result=artifact_id (=attempt UUID), intención committed=1. Índice único de committed por Job. Solo el registro committed es visible; no servir directorio estático. Un resultado no se declara exitoso por presencia de archivo.
+5. Reapertura/receipt: get_artifact(owner,job_id) comprueba estado, intento, snapshot, manifest y bytes finales; archivo perdido/alterado falla cerrado, sin reescribir éxito ni volver a renderizar a escondidas. Replay publish/recover devuelve recibo exacto si los bytes están intactos. El nombre temporal enlazado al mismo inode se retira solo tras commit; si falla queda privado. 
+
+| Punto de interrupción | Recuperación |
+|---|---|
+| Render terminado, respuesta perdida, sin intención | recover lee manifest privado exacto, verifica y copia; si falta/está alterado, no publica |
+| Copia incompleta o antes de persistir intención | Sin éxito ni pointer; posible .partial huérfano, nuevo copy desde candidato válido |
+| Intención durable, antes de link | recover verifica staged y termina sin Engine |
+| Link durable, antes del commit SQLite | archivo privado no visible, recover verifica final y confirma si intento sigue activo |
+| Commit realizado, respuesta perdida | recover/get_artifact devuelve recibo ya confirmado sin workspace ni rerender |
+| Cancel/fail/recover-interrupted gana carrera | intento revocado, nunca confirma publicación posterior; posible intención/archivo privado huérfano |
+| Retry | intento UUID/generación nuevos, no reutilizar resultado viejo |
+
+La recuperación de publicación (publication.recover) es distinta de jobs.recover que declara perdido el intento: operador confirma que el renderer ha terminado o está aislado antes de elegir; tras revocar no se rescata su resultado. No borrar workspace activo ni siquiera al cancelar. Retención/reconciliación de huérfanos, cuotas/admisión, límites de recursos y acceso de descarga seguro son gates posteriores; operador controla roots privadas y disco suficiente. Un huérfano no equivale a resultado autorizado. No transacción distribuida ni garantía exactly-once de efectos físicos. El protocolo utiliza FS local con hardlinks y fsync soportados, SQLite journal y synchronous FULL; no certificar hardware/FS defectuoso, pérdida simultánea del DB/disco, DR, escritor host comprometido ni cancelación física. El directorio persistente no debe ser limpiado junto al scratch. Pruebas de corte de proceso y rollback simulado, no corte eléctrico. 
+
+La semántica stage-engineering-v0 mantiene matching de color y fundidos Stage, branding none, sin efectos manuales ni clips extra, máster completo desde cero. No neutralidad, no reinterpretación de recetas; perfil definitivo producto sigue acuerdo FER/JM.

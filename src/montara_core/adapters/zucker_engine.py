@@ -16,24 +16,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from montara_core.domain.execution import ExecutionSpec, EngineCandidate
 
-ENGINE_REVISION = "9af275b18535005e36bd289a68ceb4a1d2f6c506"
-ENGINE_VERSION = "2.6.20"
-RENDERER_REVISION = "1fb15f87eb8df9e1ac08123fb7a8e79ffad1c24d"
-STAGE_SEMANTICS = "stage-engineering-v0"
-
-
-def _stage_semantics():
-    """Private attestation of the fixed engineering profile, not a public recipe schema."""
-    return {"id": STAGE_SEMANTICS, "renderer_revision": RENDERER_REVISION,
-            "engine_revision": ENGINE_REVISION, "engine_version": ENGINE_VERSION,
-            "platform": "youtube", "branding": "none",
-            "presentation": "in-content-stage-defaults",
-            "video_color": "stage-default-matching", "video_light": "disabled",
-            "edge_fades": "stage-default-audio-video", "extra_bookends": False,
-            "manual_effects": False, "neutral": False,
-            "master": "continuous-from-zero-full-content-coverage",
-            "padding": "preserve-mux-policy-no-missing-content"}
-
+from montara_core.domain.execution import (
+    ENGINE_REVISION, ENGINE_VERSION, RENDERER_REVISION, STAGE_SEMANTICS,
+    stage_semantics as _stage_semantics, snapshot_digest, spec_document,
+)
 
 class EngineExecutionError(RuntimeError):
     """The attempt did not yield a usable private candidate."""
@@ -230,6 +216,8 @@ class ZuckerEngineAdapter:
         if sys.platform != "linux":
             raise EngineExecutionError("Only isolated Linux is supported in H2")
         inputs, cameras, recipe, duration_ms = _plan(spec)
+        if not spec.snapshot_sha256 or snapshot_digest(spec_document(spec)) != spec.snapshot_sha256:
+            raise EngineExecutionError("Execution snapshot fingerprint mismatch")
         _checked_checkout(self.renderer_root, RENDERER_REVISION)
         _checked_checkout(self.engine_root, ENGINE_REVISION)
         workspace = spec.workspace
@@ -336,7 +324,9 @@ class ZuckerEngineAdapter:
             # Record the actual pinned execution semantics beside the private
             # verified candidate. Core owns publication and future snapshot schema.
             with (root / "candidate-manifest.json").open("x", encoding="utf-8") as stream:
-                json.dump({"schema": 1, "recipe_revision_id": spec.recipe_revision_id,
+                json.dump({"schema": 2, "recipe_revision_id": spec.recipe_revision_id,
+                           "job_id": spec.job_id, "task_id": spec.task_id,
+                           "snapshot_sha256": spec.snapshot_sha256,
                            "attempt_id": spec.attempt_id, "generation": spec.generation,
                            "candidate": {k: v for k, v in candidate.items() if k != "path"},
                            "stage_semantics": _stage_semantics()}, stream, sort_keys=True)

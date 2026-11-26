@@ -14,6 +14,7 @@ class Config:
     sqlite_path: Path | None = None
     media_root: Path | None = None
     workspace_root: Path | None = None
+    artifact_root: Path | None = None
 
 
 def load_config(path: Path | None = None) -> Config:
@@ -34,9 +35,9 @@ def load_config(path: Path | None = None) -> Config:
         raise ConfigError("http.port must be an integer from 0 to 65535")
     storage = data.get("storage")
     sqlite_path = None
-    media_root = workspace_root = None
+    media_root = workspace_root = artifact_root = None
     if storage is not None:
-        if not isinstance(storage, dict) or "sqlite_path" not in storage or set(storage) - {"sqlite_path", "media_root", "workspace_root"}:
+        if not isinstance(storage, dict) or "sqlite_path" not in storage or set(storage) - {"sqlite_path", "media_root", "workspace_root", "artifact_root"}:
             raise ConfigError("storage requires sqlite_path and optional paired media roots")
         raw_path = storage["sqlite_path"]
         if not isinstance(raw_path, str) or not raw_path or "\x00" in raw_path:
@@ -52,8 +53,13 @@ def load_config(path: Path | None = None) -> Config:
             media_root = _root(storage["media_root"])
             workspace_root = _root(storage["workspace_root"])
             validate_roots(sqlite_path, media_root, workspace_root)
+        if "artifact_root" in storage:
+            if media_root is None:
+                raise ConfigError("artifact_root requires media and workspace roots")
+            artifact_root = _root(storage["artifact_root"])
+            validate_artifact_root(sqlite_path, media_root, workspace_root, artifact_root)
     return Config(port=port, sqlite_path=sqlite_path, media_root=media_root,
-                  workspace_root=workspace_root)
+                  workspace_root=workspace_root, artifact_root=artifact_root)
 
 
 def _root(value) -> Path:
@@ -73,3 +79,12 @@ def validate_roots(sqlite_path: Path, media_root: Path, workspace_root: Path) ->
             or sqlite_path.resolve().is_relative_to(workspace_root)):
         raise ConfigError("database, media and workspace roots must be separate")
 
+
+
+def validate_artifact_root(sqlite_path: Path, media_root: Path, workspace_root: Path,
+                           artifact_root: Path) -> None:
+    artifact_root = _root(str(artifact_root))
+    if (sqlite_path.resolve().is_relative_to(artifact_root) or
+            any(artifact_root.is_relative_to(p) or p.is_relative_to(artifact_root)
+                for p in (media_root, workspace_root))):
+        raise ConfigError("artifact root must be separate from database, originals and workspaces")

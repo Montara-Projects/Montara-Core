@@ -4,10 +4,11 @@ from dataclasses import dataclass
 from montara_core.adapters.sqlite_core import SQLiteCoreStore
 from montara_core.application.jobs import JobService
 from montara_core.application.media import MediaService
+from montara_core.application.publication import PublicationService
 from montara_core.adapters.local_media import LocalMedia
 from montara_core.application.ports import StorageError
 from montara_core.application.projects import ProjectService
-from montara_core.bootstrap.config import Config, ConfigError, validate_roots
+from montara_core.bootstrap.config import Config, ConfigError, validate_roots, validate_artifact_root
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,7 @@ class CoreServices:
     projects: ProjectService
     jobs: JobService
     media: MediaService
+    publication: PublicationService
 
 
 def build_core(config: Config) -> CoreServices:
@@ -31,5 +33,15 @@ def build_core(config: Config) -> CoreServices:
         except ConfigError as exc:
             raise StorageError("invalid local media roots") from exc
         local = LocalMedia(config.media_root, config.workspace_root)
-    store = SQLiteCoreStore(config.sqlite_path, local=local)
-    return CoreServices(ProjectService(store), JobService(store), MediaService(store))
+    if config.artifact_root is not None:
+        if local is None:
+            raise StorageError("artifact root requires media and workspace roots")
+        try:
+            validate_artifact_root(config.sqlite_path, config.media_root, config.workspace_root,
+                                   config.artifact_root)
+        except ConfigError as exc:
+            raise StorageError("invalid artifact root") from exc
+    store = SQLiteCoreStore(config.sqlite_path, local=local, artifact_root=config.artifact_root)
+    media = MediaService(store)
+    return CoreServices(ProjectService(store), JobService(store), media,
+                        PublicationService(store, media))
