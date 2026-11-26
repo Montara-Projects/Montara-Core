@@ -88,6 +88,7 @@ cleanup() {
             if [ "$(systemctl show "$unit.service" -p LoadState --value 2>/dev/null)" = not-found ]; then continue; fi
             systemctl stop "$unit.service" >/dev/null 2>&1 || stop_ok=0
             test "$(systemctl show "$unit.service" -p MainPID --value 2>/dev/null)" = 0 || stop_ok=0
+            case "$(systemctl show "$unit.service" -p ActiveState --value 2>/dev/null)" in inactive|failed) ;; *) stop_ok=0 ;; esac
         done
         rm -f -- "$ecfg/client-secret" "$ecfg/arm.sha256"
         if [ "$stop_ok" = 1 ]; then echo ADMISSION_STOPPED_REVIEW_REQUIRED; else echo ADMISSION_STOP_UNVERIFIED_FAIL_CLOSE_EDGE; rc=1; fi
@@ -125,7 +126,7 @@ if printf '%s\n' "$listeners" | awk '$4 ~ /:8080$/ {found=1} END {exit !found}';
 # Non-root read-only fingerprint of durable DB and published artifact inventory.
 # Do not create a lock, open SQLite for writing or hash long original media.
 snapshot() {
-    runuser -u montara-pilot -- python3 -I - "$state" <<'PY'
+    runuser -u montara-pilot -- /usr/bin/python3 -I - "$state" <<'PY'
 import fcntl,hashlib,os,stat,sys
 from pathlib import Path
 state=Path(sys.argv[1])
@@ -204,11 +205,13 @@ cmp -s "$cfg/allowed-subjects" "$T/old-subjects"
 cmp -s "$cfg/core.toml" "$T/old-core.toml"
 echo STATE_AND_EXISTING_ADMISSION_UNCHANGED=PASS
 confirm "FER autoriza publicar exclusivamente la ampliacion verificada. Alfred confirma enrolador retirado, ingreso cerrado. No arranques servicios hasta completar ambos archivos." PUBLICAR_ADMISION
-# Both renames are on the same filesystem; no readers until both complete.
+# Persist originals before either rename. Both are same-filesystem; no readers until both complete.
+sync -f "$cfg"
 # If interrupted between them, T remains and operator must reconcile from its originals.
 mv -fT "$T/subjects" "$cfg/allowed-subjects"
 mv -fT "$candidate" "$cfg/core.toml"
 sync -f "$cfg"
+cmp -s "$cfg/core.toml" "$T/new-core.toml"
 runuser -u montara-pilot -- env -i HOME="$state/runtime-home" PATH="$base/current/media-tools:/usr/bin:/bin" \
  "$base/current/pilot-runtime/venv/bin/python" -I -m montara_core --config "$cfg/core.toml" --check-config
 snapshot > "$T/state-after-publish"
