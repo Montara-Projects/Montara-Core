@@ -22,7 +22,7 @@ while read -r hash name; do
     test "$(git hash-object --no-filters "$S/$name")" = "$hash"
 done <<'HASHES'
 fc7c01419c28a0c3ca15fa3eddf97435a18cca46 prepare-runtime.sh
-35819a26552e9b24a53fc13e402499ea5d3b2ec8 render-config.py
+f2603013903f4a05140489cb8d463577ab29eceb render-config.py
 eb08b8987f6621e1bdf8028c75219c074323ce6b pilot.example.toml
 d487d168af13dd310a77838f960eb2d4a149ca8e gitconfig
 9625015cc8875c20bf21aa4a19ff69cbb083293c check-sealed-git.sh
