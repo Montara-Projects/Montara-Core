@@ -30,7 +30,7 @@ d39310dd76febab0dfa371ee536c56832c9d53c1 montara-pilot-http.service
 6d9df7806b9567aa5fef4467f6984ef69f26af30 montara-pilot-worker.service
 a6f137778ed181aaf7ea08238c4b94e64696ccd4 enrol.py
 bb528fc454104970f88ac801a63dbab55495b3d5 montara-pilot-enrol.service
-c9e2ae14d615d1b6a83651c5be0d12bd93ad2756 montara-pilot-ingress.service
+ebad4fc19cc26a7243541b395c2366d0b46e1278 montara-pilot-ingress.service
 1675a3a57a303ef78c514714e3081c628150c20d montara-pilot-acl.service
 HASHES
 # Abort on any previous installation; never overwrite data, accounts or units.
@@ -45,15 +45,15 @@ control="$base/control"
 units=(montara-pilot-http montara-pilot-worker montara-pilot-ingress montara-pilot-enrol montara-pilot-acl)
 for p in "$base" "$cfg" "$ecfg" "$icfg" "$state" "$work"; do test ! -e "$p" && test ! -L "$p"; done
 for n in montara-pilot montara-pilot-enrol montara-pilot-ingress; do
-    ! getent passwd "$n" >/dev/null
-    ! getent group "$n" >/dev/null
+    if getent passwd "$n" >/dev/null || getent group "$n" >/dev/null; then echo IDENTITY_COLLISION; exit 1; fi
 done
 for n in "${units[@]}"; do
     test "$(systemctl show "$n.service" -p LoadState --value)" = not-found
     test ! -e "/etc/systemd/system/$n.service.d" && test ! -L "/etc/systemd/system/$n.service.d"
 done
-! ss -H -ltn | awk '$4 ~ /:(8080|20246)$/ {found=1} END {exit !found}'
-! nft list table inet montara_pilot_v2 >/dev/null 2>&1
+listeners=$(ss -H -ltn)
+if printf '%s\n' "$listeners" | awk '$4 ~ /:(8080|20246)$/ {found=1} END {exit !found}'; then echo PORT_COLLISION; exit 1; fi
+if nft list table inet montara_pilot_v2 >/dev/null 2>&1; then echo ACL_COLLISION; exit 1; fi
 test "$(df -PB1 /opt | awk 'NR==2 {print $4}')" -ge 16106127360
 echo PREFLIGHT_LOCAL=PASS
 confirm() {
@@ -68,11 +68,12 @@ done_ok=0
 created=0
 cleanup() {
     rc=$?
-    trap - EXIT INT TERM
+    trap - EXIT INT TERM HUP
     set +e
     if [ "$created" = 1 ] && [ "$done_ok" != 1 ]; then
         systemctl stop montara-pilot-ingress.service montara-pilot-enrol.service montara-pilot-worker.service montara-pilot-http.service >/dev/null 2>&1
         # Keep ACL and state; manual reviewed recovery if preparation partially completed.
+        rm -f -- "$ecfg/client-secret" "$ecfg/arm.sha256"
         echo "PILOT_STOPPED_REVIEW_REQUIRED"
     fi
     rm -rf -- "$T"
@@ -81,6 +82,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+trap 'exit 129' HUP
 # Copy archived wheel as the authorized existing non-root reader, then hash before publishing.
 runuser -u sentinelx -- cat /srv/montara-core/workspaces/artifacts/h2-30-pilot-reference/montara_core-0.1.0-py3-none-any.whl > "$T/wheel"
 echo "c7e11118d2d1c5bffe658b3ed2ef11ed8101e47e6ef027bd6a601c442bb8304f  $T/wheel" | sha256sum -c --status
@@ -188,8 +190,6 @@ nft -c -f "$cfg/acl.nft"
 for n in "${units[@]}"; do
     install -m 0644 -o root -g root "$S/$n.service" "/etc/systemd/system/$n.service"
 done
-# Isolate connector binary path from the Core group. Unit is rendered by the operator.
-sed -i 's@/opt/montara-pilot/control/cloudflared@/opt/montara-pilot/ingress/cloudflared@' /etc/systemd/system/montara-pilot-ingress.service
 install -d -m 0755 /etc/systemd/system/montara-pilot-http.service.d
 cat > /etc/systemd/system/montara-pilot-http.service.d/acl.conf <<'EOF'
 [Unit]
@@ -253,7 +253,8 @@ done
 systemctl stop montara-pilot-ingress.service montara-pilot-enrol.service
 test "$(systemctl show montara-pilot-enrol.service -p MainPID --value)" = 0
 test "$(systemctl show montara-pilot-ingress.service -p MainPID --value)" = 0
-! ss -H -ltn | awk '$4 ~ /:8080$/ {found=1} END {exit !found}'
+listeners=$(ss -H -ltn)
+if printf '%s\n' "$listeners" | awk '$4 ~ /:8080$/ {found=1} END {exit !found}'; then echo LISTENER_NOT_STOPPED; exit 1; fi
 # Temporary service and copied secret removed; no Core DB was available to it.
 rm -f /etc/systemd/system/montara-pilot-enrol.service "$ecfg/oidc.json" "$ecfg/client-secret" "$ecfg/arm.sha256" "$control/enrol.py"
 rmdir "$work" "$ecfg"
@@ -283,6 +284,6 @@ systemctl start montara-pilot-ingress.service
 confirm "Alfred confirma de nuevo QUIC, binding exclusivo, negativas Access y health protegida. Acepta dejar piloto disponible para QA humana, sin worker automatico." PILOTO_LISTO
 systemctl is-active --quiet montara-pilot-http.service
 systemctl is-active --quiet montara-pilot-ingress.service
-! systemctl is-active --quiet montara-pilot-worker.service
+if systemctl is-active --quiet montara-pilot-worker.service; then echo WORKER_UNEXPECTEDLY_ACTIVE; exit 1; fi
 done_ok=1
 echo PILOT_INSTALLED_PENDING_HUMAN_QA=PASS
