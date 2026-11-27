@@ -1,0 +1,35 @@
+{
+  "format": 1,
+  "scope": "Ubuntu 24.04 x86_64 host compatibility candidate, not replacement for historical artifact lock",
+  "historical_lock_git_blob": "f425eed4a28ef2c5bb60a042c0ffbfe9d11b59e6",
+  "host_library_count": 75,
+  "security_notice": "https://ubuntu.com/security/notices/USN-9202-1",
+  "previous_package_version": "1.20.1-6ubuntu2.10",
+  "package_version": "1.20.1-6ubuntu2.12",
+  "changes": [
+    {
+      "path": "/lib/x86_64-linux-gnu/libgssapi_krb5.so.2",
+      "package": "libgssapi-krb5-2:amd64",
+      "old_sha256": "c7aa00cf51646f7c32f196d329a562bc873ff32906c9caf6554ca489dd657507",
+      "sha256": "163f5973df18e1cf4ddfa599ff608b5360b4e0d7306d200fdca4830ca5c48e11"
+    },
+    {
+      "path": "/lib/x86_64-linux-gnu/libk5crypto.so.3",
+      "package": "libk5crypto3:amd64",
+      "old_sha256": "b37407fb2930939bf78b47267019cd201a8af1f4b6a3852249c849cf3a985798",
+      "sha256": "e37a0aebc1202bcee4eb43b4e70e67447b042e1024632f2a2a279c1bc9c7720a"
+    },
+    {
+      "path": "/lib/x86_64-linux-gnu/libkrb5.so.3",
+      "package": "libkrb5-3:amd64",
+      "old_sha256": "fad617a72b5839d30143e7db03281279089def6f18788cbb0b7f86385301bf04",
+      "sha256": "b27d3949dd531b72b82b05d5979a85b3ca0442ff18cdde181d4c627b61052678"
+    },
+    {
+      "path": "/lib/x86_64-linux-gnu/libkrb5support.so.0",
+      "package": "libkrb5support0:amd64",
+      "old_sha256": "936bae947a838bd47676a419dfcfb036d0163249215b58ec706ec7d46b7497aa",
+      "sha256": "04470eb23521c3ed946dcf3e614358ac0ab64b57686a72713158668118624519"
+    }
+  ]
+}
