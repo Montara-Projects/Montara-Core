@@ -39,10 +39,16 @@ finish() {
         if [ "$armed" = 1 ]; then
             stop_ok=1
             for u in "$ingress" "$http"; do
+                cg=$(systemctl show "$u" -p ControlGroup --value 2>/dev/null) || stop_ok=0
                 systemctl stop "$u" >/dev/null 2>&1 || stop_ok=0
                 test "$(systemctl show "$u" -p MainPID --value)" = 0 || stop_ok=0
                 case "$(systemctl show "$u" -p ActiveState --value)" in inactive|failed) ;; *) stop_ok=0 ;; esac
+                if [ -n "$cg" ] && [ -e "/sys/fs/cgroup$cg/cgroup.events" ]; then
+                    grep -qx "populated 0" "/sys/fs/cgroup$cg/cgroup.events" || stop_ok=0
+                fi
             done
+            listeners=$(ss -H -ltn) || stop_ok=0
+            if printf '%s\n' "$listeners" | awk '$4 ~ /:(8080|20246)$/ {found=1} END {exit !found}'; then stop_ok=0; fi
             if [ "$stop_ok" = 1 ]; then echo FINAL_ACTIVATION_STOPPED_REVIEW_REQUIRED
             else echo FINAL_STOP_UNVERIFIED_FAIL_CLOSE_EDGE; rc=1; fi
         fi
@@ -59,6 +65,9 @@ mark() { phase=$1; printf 'PHASE=%s\n' "$phase"; }
 hash_file() {
     test -f "$1" && test ! -L "$1" && test "$(stat -c %u "$1")" = 0
     test "$(git hash-object --no-filters "$1")" = "$2"
+    local mode
+    mode=$(stat -c %a "$1")
+    (( (8#$mode & 022) == 0 ))
 }
 stopped() {
     test "$(systemctl show "$1" -p MainPID --value)" = 0
@@ -102,6 +111,8 @@ hash_file "/etc/systemd/system/$http" d39310dd76febab0dfa371ee536c56832c9d53c1
 hash_file "/etc/systemd/system/$ingress" ebad4fc19cc26a7243541b395c2366d0b46e1278
 hash_file "/etc/systemd/system/$worker" 6d9df7806b9567aa5fef4467f6984ef69f26af30
 hash_file "/etc/systemd/system/$acl" 1675a3a57a303ef78c514714e3081c628150c20d
+test ! -L /etc/systemd/system/montara-pilot-http.service.d/acl.conf
+test "$(stat -c %u /etc/systemd/system/montara-pilot-http.service.d/acl.conf)" = 0
 cmp -s /etc/systemd/system/montara-pilot-http.service.d/acl.conf <(printf '[Unit]\nRequires=montara-pilot-acl.service\nAfter=montara-pilot-acl.service\nBindsTo=montara-pilot-acl.service\nConflicts=montara-pilot-enrol.service\n')
 jobs=$(systemctl list-jobs --no-legend --no-pager)
 if printf '%s\n' "$jobs" | grep -q 'montara-pilot-'; then echo PENDING_UNIT_JOB; exit 1; fi
@@ -113,6 +124,7 @@ echo PRESERVED_UNITS=PASS
 mark acl_preflight
 systemctl is-active --quiet "$acl"
 # Inspect the loaded rules, not just the existence of the table. Do not reapply it.
+check_acl() {
 python3 -I - "$cfg/acl.nft" "$(id -u montara-pilot-ingress)" <<'PY'
 import json,subprocess,sys
 from pathlib import Path
@@ -126,7 +138,7 @@ expected='''table inet montara_pilot_v2 {
 }
 ''' % uid
 assert Path(sys.argv[1]).read_text()==expected
-data=json.loads(subprocess.check_output(["nft","-j","-nn","list","table","inet","montara_pilot_v2"]))["nftables"]
+data=json.loads(subprocess.check_output(["nft","-j","-n","list","table","inet","montara_pilot_v2"]))["nftables"]
 assert all(set(x) in ({"metainfo"},{"table"},{"chain"},{"rule"}) for x in data)
 tables=[x["table"] for x in data if "table" in x]
 chains=[x["chain"] for x in data if "chain" in x]
@@ -148,6 +160,8 @@ for rule,port in zip(rules,(8080,20246)):
     else: assert m["right"]==0
 print("LIVE_ACL_RULES=PASS")
 PY
+}
+check_acl
 listeners=$(ss -H -ltn)
 if printf '%s\n' "$listeners" | awk '$4 ~ /:(8080|20246)$/ {found=1} END {exit !found}'; then echo PORT_COLLISION; exit 1; fi
 echo ACL_AND_QUIESCENCE=PASS
@@ -169,6 +183,7 @@ for f in "$cfg/core.toml" "$cfg/client-secret" "$icfg/token" "$cfg/acl.nft"; do
 done
 test -s "$icfg/token"
 hash_file "$base/control/render-config.py" f2603013903f4a05140489cb8d463577ab29eceb
+hash_file "$base/control/pilot.example.toml" eb08b8987f6621e1bdf8028c75219c074323ce6b
 echo "c7e11118d2d1c5bffe658b3ed2ef11ed8101e47e6ef027bd6a601c442bb8304f  $base/input/montara_core-0.1.0-py3-none-any.whl" | sha256sum -c --status
 echo "56f13335143ec0e22772963290683a84a04114a35ec64cbc794a4d39ff9bb8cf  $base/ingress/cloudflared" | sha256sum -c --status
 # All values remain in local Python memory. Print only the approved origin's hostname
@@ -181,6 +196,9 @@ spec=importlib.util.spec_from_file_location("render_config",helper)
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 try:
     d=tomllib.loads(m.private_text(cfg/"operator.toml"))
+    template=tomllib.loads(helper.with_name("pilot.example.toml").read_text())
+    template["public_origin"]=d["public_origin"]
+    assert d==template
     assert d["identity"]["allowed_subjects_file"]==str(cfg/"allowed-subjects")
     core,_,checklist=m.generate(d)
     assert tomllib.loads(core)==tomllib.loads((cfg/"core.toml").read_text())
@@ -286,6 +304,7 @@ mark final_gate
 systemctl is-active --quiet "$http"
 systemctl is-active --quiet "$ingress"
 systemctl is-active --quiet "$acl"
+check_acl
 test "$(ss -H -ltn | awk '$4 ~ /:8080$/ {print $4}')" = 127.0.0.1:8080
 stopped "$worker"
 no_enrolment
