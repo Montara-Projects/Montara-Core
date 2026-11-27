@@ -11,6 +11,24 @@ for x in git python3 nft ss systemctl runuser sha256sum pgrep; do command -v "$x
 . /etc/os-release
 test "$ID" = ubuntu && test "$VERSION_ID" = 24.04 && test "$(uname -m)" = x86_64
 cd /
+while read -r hash name; do
+    test -f "$S/$name" && test ! -L "$S/$name"
+    test "$(stat -c %u "$S/$name")" = 0
+    test "$(git hash-object --no-filters "$S/$name")" = "$hash"
+done <<'HASHES'
+fc7c01419c28a0c3ca15fa3eddf97435a18cca46 prepare-runtime.sh
+f2603013903f4a05140489cb8d463577ab29eceb render-config.py
+eb08b8987f6621e1bdf8028c75219c074323ce6b pilot.example.toml
+d487d168af13dd310a77838f960eb2d4a149ca8e gitconfig
+9625015cc8875c20bf21aa4a19ff69cbb083293c check-sealed-git.sh
+d39310dd76febab0dfa371ee536c56832c9d53c1 montara-pilot-http.service
+6d9df7806b9567aa5fef4467f6984ef69f26af30 montara-pilot-worker.service
+a6f137778ed181aaf7ea08238c4b94e64696ccd4 enrol.py
+bb528fc454104970f88ac801a63dbab55495b3d5 montara-pilot-enrol.service
+ebad4fc19cc26a7243541b395c2366d0b46e1278 montara-pilot-ingress.service
+1675a3a57a303ef78c514714e3081c628150c20d montara-pilot-acl.service
+6714a88dbbf507e34f6e35e785231d3c832d8518 enrol-batch.sh
+HASHES
 base=/opt/montara-pilot
 cfg=/etc/montara-pilot
 ecfg=/etc/montara-pilot-enrol
@@ -45,6 +63,7 @@ test "$(ls -A "$cfg")" = gitconfig
 test -z "$(ls -A "$ecfg")" && test -z "$(ls -A "$icfg")"
 test ! -e "$base/current" && test ! -L "$base/current"
 test -d "$base/input/ffmpeg-cache" && test "$(realpath "$base/input/ffmpeg-cache")" = "$base/input/ffmpeg-cache"
+test "$(stat -c '%U:%G:%a' "$base/input/ffmpeg-cache")" = root:montara-pilot:750
 test ! -e "$base/input/python-cache" && test ! -L "$base/input/python-cache"
 for n in "${units[@]}"; do
     test "$(systemctl show "$n.service" -p LoadState --value)" = not-found
@@ -61,6 +80,7 @@ for n in prepare-runtime.sh render-config.py pilot.example.toml check-sealed-git
 done
 cmp -s "$cfg/gitconfig" "$S/gitconfig"
 test "$(git hash-object --no-filters "$control/resume-runtime.sh")" = 8b301272c8df27cd7a39773241e79d0a6c454fc9
+test "$(ls -A "$control" | sort)" = "$(printf '%s\n' check-sealed-git.sh enrol.py pilot.example.toml prepare-runtime.sh render-config.py resume-runtime.sh)"
 test "$(ls -A "$base/input" | sort)" = "$(printf '%s\n' ffmpeg-cache montara_core-0.1.0-py3-none-any.whl)"
 test "$(ls -A "$base/ingress")" = cloudflared
 test ! -L "$base/input/montara_core-0.1.0-py3-none-any.whl" && test ! -L "$base/ingress/cloudflared"
@@ -104,8 +124,14 @@ for n in ("debs","debs.partial","ffmpeg-root","media-tools","prep-evidence","res
 for n,expected_phases in (("prep-evidence",[("sources",True),("python_bootstrap",True),("ffmpeg_local_closure",False)]),("resume-evidence",[("ffmpeg_local_closure",False)])):
     metrics=json.loads((slot/n/"metrics-install.json").read_text())
     assert [(x["phase"],x["ok"]) for x in metrics]==expected_phases
-oldff=json.loads((slot/"core-src/release/manifests/h2.6-ffmpeg-lock.json").read_text())
-oldpy=json.loads((slot/"core-src/release/manifests/h2.7-python-lock.json").read_text())
+fflock=slot/"core-src/release/manifests/h2.6-ffmpeg-lock.json"
+pylock=slot/"core-src/release/manifests/h2.7-python-lock.json"
+assert run("git","hash-object",fflock)=="f425eed4a28ef2c5bb60a042c0ffbfe9d11b59e6"
+assert run("git","hash-object",pylock)=="81731b789adba706f2971e3260e56345f2b0381c"
+oldff=json.loads(fflock.read_text())
+oldpy=json.loads(pylock.read_text())
+assert (slot/"ffmpeg-root/usr/share/X11/rgb.txt").is_symlink()
+assert __import__("os").readlink(slot/"ffmpeg-root/usr/share/X11/rgb.txt")=="/etc/X11/rgb.txt"
 for p in (slot/"debs",cache):
     assert p.resolve()==p
     assert {x.name for x in p.iterdir()}=={x["filename"] for x in oldff["debs"]}
