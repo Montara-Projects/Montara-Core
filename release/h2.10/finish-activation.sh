@@ -32,7 +32,7 @@ show_state() {
 }
 finish() {
     rc=$?
-    trap - EXIT INT TERM HUP
+    trap - EXIT INT TERM HUP ERR
     set +e
     if [ "$rc" != 0 ] || { [ "$armed" = 1 ] && [ "$completed" != 1 ]; }; then
         printf 'ACTIVATION_FAILED_PHASE=%s RC=%s\n' "$phase" "$rc"
@@ -58,6 +58,8 @@ finish() {
     exit "$rc"
 }
 trap finish EXIT
+# Record only the line number and return code, never commands or private values.
+trap 'rc=$?; printf "ACTIVATION_ERROR_LINE=%s RC=%s\n" "$LINENO" "$rc" >&2' ERR
 trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
@@ -152,8 +154,12 @@ assert (c["family"],c["table"],c["name"],c["type"],c["hook"],c["prio"],c["policy
 for rule,port in zip(rules,(8080,20246)):
     assert (rule["family"],rule["table"],rule["chain"])==("inet","montara_pilot_v2","local_output")
     expr=rule["expr"]
-    assert len(expr)==4 and set(expr[-1])=={"reject"}
-    matches=[x["match"] for x in expr[:3]]
+    assert len(expr) in (4,5) and set(expr[-1])=={"reject"}
+    matches=[x["match"] for x in expr[:-1]]
+    # nft may expose an explicit dependency for the TCP payload in inet.
+    if len(matches)==4:
+        proto=matches.pop(1)
+        assert proto["op"]=="==" and proto["left"]=={"meta":{"key":"l4proto"}} and proto["right"] in ("tcp",6)
     assert matches[0]=={"op":"==","left":{"meta":{"key":"oifname"}},"right":"lo"}
     assert matches[1]=={"op":"==","left":{"payload":{"protocol":"tcp","field":"dport"}},"right":port}
     m=matches[2]
