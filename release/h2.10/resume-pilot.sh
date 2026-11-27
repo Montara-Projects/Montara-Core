@@ -10,7 +10,7 @@ test "$#" = 1
 S=$(realpath "$1")
 test "$S" = "$1" && test "$(stat -c '%u:%a' "$S")" = 0:700
 test -t 0 && test -t 1 && test -r /dev/tty
-for x in git python3 nft ss curl systemctl systemd-analyze runuser sha256sum install; do command -v "$x" >/dev/null; done
+for x in git python3 nft ss curl systemctl systemd-analyze runuser sha256sum install pgrep; do command -v "$x" >/dev/null; done
 . /etc/os-release
 test "$ID" = ubuntu && test "$VERSION_ID" = 24.04 && test "$(uname -m)" = x86_64
 cd /
@@ -89,7 +89,7 @@ echo "c7e11118d2d1c5bffe658b3ed2ef11ed8101e47e6ef027bd6a601c442bb8304f  $base/in
 echo "56f13335143ec0e22772963290683a84a04114a35ec64cbc794a4d39ff9bb8cf  $base/ingress/cloudflared" | sha256sum -c --status
 # No running processes from the three dedicated service UIDs at this stage.
 for n in montara-pilot montara-pilot-enrol montara-pilot-ingress; do
-    if pgrep -u "$n" >/dev/null; then echo PARTIAL_UID_BUSY; exit 1; fi
+    if pgrep -u "$n" >/dev/null; then echo PARTIAL_UID_BUSY; exit 1; else test "$?" = 1; fi
 done
 echo PARTIAL_ROOT_PREFLIGHT=PASS
 confirm() {
