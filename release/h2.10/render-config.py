@@ -39,8 +39,8 @@ def generate(d):
         raise ValueError("Google discovery mismatch; review explicitly")
     client=line(private_text(ident["client_id_file"]))
     subs=[line(x) for x in private_text(ident["allowed_subjects_file"]).splitlines()]
-    if len(subs)!=4 or len(set(subs))!=4 or any(len(x)>255 for x in subs):
-        raise ValueError("four distinct verified subjects required")
+    if not 1<=len(subs)<=4 or len(set(subs))!=len(subs) or any(len(x)>255 for x in subs):
+        raise ValueError("one to four distinct verified subjects required")
     aud=line(private_text(ingress["access_audience_file"]))
     if not re.fullmatch(r"[0-9a-f]{64}",aud):
         raise ValueError("invalid Access audience")

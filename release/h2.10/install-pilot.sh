@@ -22,7 +22,7 @@ while read -r hash name; do
     test "$(git hash-object --no-filters "$S/$name")" = "$hash"
 done <<'HASHES'
 fc7c01419c28a0c3ca15fa3eddf97435a18cca46 prepare-runtime.sh
-ded2bbd95e9d8fa9dc8491dcd5c1d539aeb539f6 render-config.py
+f2603013903f4a05140489cb8d463577ab29eceb render-config.py
 eb08b8987f6621e1bdf8028c75219c074323ce6b pilot.example.toml
 d487d168af13dd310a77838f960eb2d4a149ca8e gitconfig
 9625015cc8875c20bf21aa4a19ff69cbb083293c check-sealed-git.sh
@@ -32,6 +32,7 @@ a6f137778ed181aaf7ea08238c4b94e64696ccd4 enrol.py
 bb528fc454104970f88ac801a63dbab55495b3d5 montara-pilot-enrol.service
 ebad4fc19cc26a7243541b395c2366d0b46e1278 montara-pilot-ingress.service
 1675a3a57a303ef78c514714e3081c628150c20d montara-pilot-acl.service
+6714a88dbbf507e34f6e35e785231d3c832d8518 enrol-batch.sh
 HASHES
 # Abort on any previous installation; never overwrite data, accounts or units.
 base=/opt/montara-pilot
@@ -210,51 +211,10 @@ systemctl start montara-pilot-acl.service
 nft list table inet montara_pilot_v2 >/dev/null
 origin=$(<"$T/origin")
 host=${origin#https://}
-# For each ceremony: create a fresh code, start a bounded listener, stop before reading result.
-for n in 1 2 3 4; do
-    systemctl stop montara-pilot-enrol.service
-    test ! -e "$work/result" && test ! -L "$work/result"
-    code=$(python3 -I -c 'import secrets; print(secrets.token_urlsafe(32))')
-    printf '%s' "$code" | sha256sum | awk '{print $1}' > "$ecfg/arm.sha256"
-    chown root:montara-pilot-enrol "$ecfg/arm.sha256"; chmod 0640 "$ecfg/arm.sha256"
-    systemctl start montara-pilot-enrol.service
-    for i in $(seq 1 30); do
-        if curl --noproxy '*' -fsS --max-time 2 -H "Host: $host" http://127.0.0.1:8080/health >/dev/null 2>&1; then break; fi
-        sleep .2
-    done
-    test "$(curl --noproxy '*' -fsS --max-time 3 -H "Host: $host" http://127.0.0.1:8080/health)" = ENROLMENT_READY
-    test "$(runuser -u montara-pilot-ingress -- curl --noproxy '*' -fsS --max-time 3 -H "Host: $host" http://127.0.0.1:8080/health)" = ENROLMENT_READY
-    for uid in nobody montara-pilot montara-pilot-enrol; do
-        if runuser -u "$uid" -- curl --noproxy '*' -sS --max-time 3 -H "Host: $host" http://127.0.0.1:8080/health >/dev/null 2>&1; then echo ORIGIN_ACL=FAIL; exit 1; fi
-    done
-    echo ORIGIN_ACL=PASS
-    if [ "$n" = 1 ]; then
-        confirm "ACL local acreditada. Alfred confirma politica Access y VPC exactos, diagnostico sin logs sensibles; autoriza conectar exclusivamente el enrolador." CONECTAR_ENROL
-        systemctl start montara-pilot-ingress.service
-        confirm "Alfred verifica QUIC/estado del tunel y enlaza el edge aprobado al VPC fijo. Verifica anonimo/no autorizado sin acceso, Host/callback/cookies/no logs antes de introducir codigo." EDGE_ENROL_OK
-    fi
-    printf 'Ceremonia %s de 4. Entrega este codigo solo al operador de la cuenta confirmada, por canal privado. Codigo: %s\n' "$n" "$code" >/dev/tty
-    unset code
-    confirm "La persona autorizada ha iniciado Access y seleccionado la cuenta Google acordada; se ha confirmado privadamente el resultado de la ceremonia. No es una vinculacion por email." CUENTA_CONFIRMADA
-    systemctl stop montara-pilot-enrol.service
-    # Read bounded regular result without following symlinks or trusting filesystem names.
-    python3 -I - "$work/result" "$T/subjects" <<'PY'
-import os,pwd,re,stat,sys
-from pathlib import Path
-p,d=map(Path,sys.argv[1:])
-fd=os.open(p,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
-with os.fdopen(fd,"rb") as f:
- s=os.fstat(f.fileno())
- if not stat.S_ISREG(s.st_mode) or s.st_uid!=pwd.getpwnam("montara-pilot-enrol").pw_uid or stat.S_IMODE(s.st_mode)!=0o600 or s.st_nlink!=1: raise SystemExit("RESULT_INVALID")
- raw=f.read(257)
-if not re.fullmatch(rb"[\x21-\x7e]{1,255}\n",raw): raise SystemExit("RESULT_INVALID")
-prior=d.read_bytes().splitlines() if d.exists() else []
-if raw.rstrip(b"\n") in prior: raise SystemExit("DUPLICATE_SUBJECT")
-with d.open("ab") as f: f.write(raw)
-p.unlink()
-print("VERIFIED_SUBJECT_ACCEPTED=PASS")
-PY
-done
+# Initially enrol only the two available accounts.
+enrol_count=2
+source "$S/enrol-batch.sh"
+enrol_batch
 # Close origin before switching. No overlap of listeners or enrolment after this point.
 systemctl stop montara-pilot-ingress.service montara-pilot-enrol.service
 test "$(systemctl show montara-pilot-enrol.service -p MainPID --value)" = 0
@@ -266,6 +226,7 @@ rm -f /etc/systemd/system/montara-pilot-enrol.service "$ecfg/oidc.json" "$ecfg/c
 rmdir "$work" "$ecfg"
 systemctl daemon-reload
 test "$(systemctl show montara-pilot-enrol.service -p LoadState --value)" = not-found
+test "$(wc -l < "$T/subjects")" = 2
 install -m 0600 -o root -g root "$T/subjects" "$cfg/allowed-subjects"
 python3 -I "$control/render-config.py" "$cfg/operator.toml" "$T/generated"
 install -m 0640 -o root -g montara-pilot "$T/generated/core.toml" "$cfg/core.toml"
@@ -273,7 +234,7 @@ runuser -u montara-pilot -- env -i HOME="$state/runtime-home" PATH="$base/curren
  "$base/current/pilot-runtime/venv/bin/python" -I -m montara_core --config "$cfg/core.toml" --check-config
 # Core and worker stay stopped until explicit final authorization.
 test ! -e "$state/db/core.sqlite"
-echo FOUR_SUBJECTS_AND_ENROLMENT_REMOVED=PASS
+echo INITIAL_TWO_SUBJECTS_AND_ENROLMENT_REMOVED=PASS
 confirm "Alfred confirma cierre del enrolamiento y edge protegido sin origen accesible. FER autoriza arrancar Core V2 y el conector, sin lanzar worker ni crear proyectos." ACTIVAR_CORE
 nft list table inet montara_pilot_v2 >/dev/null
 systemctl start montara-pilot-http.service
