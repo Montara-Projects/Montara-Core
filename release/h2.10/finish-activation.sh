@@ -90,10 +90,12 @@ mark observation
 show_state
 # Count only the journal records, never echo messages or credential-bearing logs.
 for u in "$http" "$acl"; do
-    count=$(journalctl -b -u "$u" --no-pager -o json -q | wc -l)
-    printf 'CURRENT_BOOT_UNIT_JOURNAL_RECORDS %s %s\n' "$u" "$count"
+    if count=$(journalctl -b -u "$u" --no-pager -o json -q | wc -l); then
+        printf 'CURRENT_BOOT_UNIT_JOURNAL_RECORDS %s %s\n' "$u" "$count"
+    else printf 'JOURNAL_RECORD_COUNT_UNAVAILABLE %s\n' "$u"; fi
 done
 mark preserved_units
+# Missing Conflicts target is intentional: no Requires=enrolment and no recreation.
 for u in "$http" "$ingress" "$worker"; do stopped "$u"; done
 no_enrolment
 for u in "$http" "$ingress" "$worker" "$acl"; do
@@ -182,6 +184,7 @@ for f in "$cfg/core.toml" "$cfg/client-secret" "$icfg/token" "$cfg/acl.nft"; do
     test -f "$f" && test ! -L "$f"
 done
 test -s "$icfg/token"
+# Do not inspect or print token content. The actual tunnel readiness is Alfred’s gate.
 hash_file "$base/control/render-config.py" f2603013903f4a05140489cb8d463577ab29eceb
 hash_file "$base/control/pilot.example.toml" eb08b8987f6621e1bdf8028c75219c074323ce6b
 echo "c7e11118d2d1c5bffe658b3ed2ef11ed8101e47e6ef027bd6a601c442bb8304f  $base/input/montara_core-0.1.0-py3-none-any.whl" | sha256sum -c --status
