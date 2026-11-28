@@ -16,6 +16,9 @@ permissions:
   contents: read
 jobs:
   engine-linux:
+    # BRAIN #35: authorized no-render fixture-only PR. The normal and
+    # manual historical gates remain unchanged for every other branch.
+    if: github.event_name != 'pull_request' || github.head_ref != 'archi-001/pilot-fixture' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

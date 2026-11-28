@@ -17,12 +17,13 @@ from montara_core.domain.media import (
     supports_export_location, validate_recipe,
 )
 from montara_core.domain.projects import InvalidValue, ProjectNotFound
-from montara_core.domain.pilot import FIXTURES, MAX_RECIPES, validate_pilot_recipe, validate_pilot_snapshot
+from montara_core.domain.pilot import FIXTURES, FIXTURE_PINS, MAX_RECIPES, validate_pilot_recipe, validate_pilot_snapshot
 
 
 class SQLiteMediaStore(SQLiteDatabase):
     _local: LocalMedia | None = None
     _pilot = None
+    _fixture_bank = None
 
     def _files(self) -> LocalMedia:
         if self._local is None:
@@ -56,34 +57,65 @@ class SQLiteMediaStore(SQLiteDatabase):
                    (loc.id, rep.id, locator))
         return rep, loc
 
+    @staticmethod
+    def _pilot_existing(db, project, kind, locator, digest, size):
+        previous = db.execute(
+            "SELECT a.id,a.kind,r.id,r.revision,r.sha256,r.size_bytes,l.id "
+            "FROM assets a JOIN representations r ON r.asset_id=a.id "
+            "JOIN media_locations l ON l.representation_id=r.id "
+            "WHERE a.project_id=? AND l.locator=? ORDER BY r.revision DESC",
+            (project, locator),
+        ).fetchall()
+        if previous:
+            asset, k, rep, rev, h, n, loc = previous[0]
+            if len(previous) != 1 or (k,h,n) != (kind,digest,size):
+                raise TransitionError("pilot fixture changed; use an authorized new project")
+            return Asset(asset,project,k), Representation(rep,asset,rev,h,n), MediaLocation(loc,rep,locator)
+        return None
+
+    def _register_verified(self, db, project, kind, locator, digest, size):
+        """Common registration after authorization and verified local bytes."""
+        if self._pilot is not None:
+            previous = self._pilot_existing(db, project, kind, locator, digest, size)
+            if previous:
+                return previous
+            if db.execute("SELECT count(*) FROM assets WHERE project_id=?", (project,)).fetchone()[0] >= len(FIXTURES):
+                raise TransitionError("pilot media limit reached")
+        asset = Asset(str(uuid4()), project, kind)
+        db.execute("INSERT INTO assets VALUES (?,?,?)", (asset.id, project, kind))
+        rep, loc = self._insert_rep(db, asset.id, 1, digest, size, locator)
+        return asset, rep, loc
+
     def register(self, actor, project, kind, locator):
         if self._pilot is not None and FIXTURES.get(locator) != kind:
             raise InvalidValue("pilot permits only named fixture media")
         with self._connection() as db:
             self._owner(db, actor, project)
+        if self._fixture_bank is not None:
+            raise TransitionError("use the authorized fixture action")
         digest, size = self._files().read(project, locator)
         with self._connection() as db:
             db.execute("BEGIN IMMEDIATE")
             self._owner(db, actor, project)
-            if self._pilot is not None:
-                previous = db.execute(
-                    "SELECT a.id,a.kind,r.id,r.revision,r.sha256,r.size_bytes,l.id "
-                    "FROM assets a JOIN representations r ON r.asset_id=a.id "
-                    "JOIN media_locations l ON l.representation_id=r.id "
-                    "WHERE a.project_id=? AND l.locator=? ORDER BY r.revision DESC",
-                    (project, locator),
-                ).fetchall()
-                if previous:
-                    a, k, r, rev, h, n, loc = previous[0]
-                    if len(previous) != 1 or (k,h,n) != (kind,digest,size):
-                        raise TransitionError("pilot fixture changed; use an authorized new project")
-                    return Asset(a,project,k), Representation(r,a,rev,h,n), MediaLocation(loc,r,locator)
-                if db.execute("SELECT count(*) FROM assets WHERE project_id=?", (project,)).fetchone()[0] >= len(FIXTURES):
-                    raise TransitionError("pilot media limit reached")
-            asset = Asset(str(uuid4()), project, kind)
-            db.execute("INSERT INTO assets VALUES (?,?,?)", (asset.id, project, kind))
-            rep, loc = self._insert_rep(db, asset.id, 1, digest, size, locator)
-            return asset, rep, loc
+            return self._register_verified(db, project, kind, locator, digest, size)
+
+    def prepare_fixture(self, actor, project):
+        if self._pilot is None or self._fixture_bank is None:
+            raise ProjectNotFound("project not found")
+        # One bounded write transaction serializes registration, including
+        # existing legacy metadata. No filesystem work before ownership.
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._owner(db, actor, project)
+            previous = [self._pilot_existing(db, project, FIXTURES[name], name, digest, size)
+                        for name, digest, size in FIXTURE_PINS]
+            count = db.execute("SELECT count(*) FROM assets WHERE project_id=?", (project,)).fetchone()[0]
+            if count + sum(item is None for item in previous) > len(FIXTURES):
+                raise TransitionError("pilot media limit reached")
+            self._fixture_bank.prepare(project)
+            for name, digest, size in FIXTURE_PINS:
+                self._register_verified(db, project, FIXTURES[name], name, digest, size)
+        return self.pilot_summary(actor, project)
 
     def revise(self, actor, asset, expected, locator):
         with self._connection() as db:
@@ -314,7 +346,8 @@ class SQLiteMediaStore(SQLiteDatabase):
                                 (project,)).fetchone()
             jobs = db.execute("SELECT id,state,generation FROM jobs WHERE project_id=? ORDER BY rowid DESC LIMIT 8",
                               (project,)).fetchall()
-            return {"media": [{"id":r[0],"kind":r[1],"label":r[2],"size_bytes":r[3]}
+            return {"fixture_available": self._fixture_bank is not None,
+                    "media": [{"id":r[0],"kind":r[1],"label":r[2],"size_bytes":r[3]}
                               for r in media if FIXTURES.get(r[2])==r[1]],
                     "recipe": asdict(self._recipe(latest)) if latest else None,
                     "jobs": [{"id":j[0],"state":j[1],"generation":j[2]} for j in jobs]}

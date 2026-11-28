@@ -10,7 +10,7 @@ from montara_core.adapters.local_media import LocalMedia
 from montara_core.domain.pilot import MAX_FILE_BYTES
 from montara_core.application.ports import StorageError
 from montara_core.application.projects import ProjectService
-from montara_core.bootstrap.config import Config, ConfigError, validate_roots, validate_artifact_root
+from montara_core.bootstrap.config import Config, ConfigError, validate_roots, validate_artifact_root, validate_fixture_bank_root
 
 
 @dataclass(frozen=True)
@@ -45,8 +45,19 @@ def build_core(config: Config) -> CoreServices:
                                    config.artifact_root)
         except ConfigError as exc:
             raise StorageError("invalid artifact root") from exc
+    fixture_bank = None
+    if config.pilot and config.pilot.fixture_bank_root is not None:
+        if config.oidc is None or local is None or config.artifact_root is None:
+            raise StorageError("fixture bank requires authenticated pilot and private roots")
+        try:
+            validate_fixture_bank_root(config.sqlite_path, config.media_root, config.workspace_root,
+                                       config.artifact_root, config.pilot)
+        except ConfigError:
+            raise StorageError("invalid fixture bank root") from None
+        from montara_core.adapters.local_fixture import LocalFixtureBank
+        fixture_bank = LocalFixtureBank(config.pilot.fixture_bank_root, config.media_root)
     store = SQLiteCoreStore(config.sqlite_path, local=local, artifact_root=config.artifact_root,
-                            pilot=config.pilot)
+                            pilot=config.pilot, fixture_bank=fixture_bank)
     media = MediaService(store)
     return CoreServices(ProjectService(store), JobService(store), media,
                         PublicationService(store, media), store)

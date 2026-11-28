@@ -57,3 +57,9 @@ class MediaService:
         validate_id(actor)
         validate_id(project)
         return self._store.pilot_summary(actor, project)
+
+    def prepare_fixture(self, actor: str, project: str):
+        """Explicit engineering action; actor is already authenticated by Core."""
+        validate_id(actor)
+        validate_id(project)
+        return self._store.prepare_fixture(actor, project)

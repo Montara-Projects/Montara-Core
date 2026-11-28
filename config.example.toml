@@ -28,3 +28,6 @@ port = 8080
 # renderer_root = "/path/to/pinned-renderer"
 # engine_root = "/path/to/pinned-engine"
 # render_timeout_sec = 180
+
+# Optional H2.10 synthetic fixture bank; enable only inside [pilot].
+# fixture_bank_root = "/path/to/immutable-fixture-bank-v1"

@@ -82,13 +82,15 @@ def load_config(path: Path | None = None) -> Config:
         if (pilot.renderer_root.is_relative_to(pilot.engine_root)
                 or pilot.engine_root.is_relative_to(pilot.renderer_root)):
             raise ConfigError("pilot checkouts must be separate")
+        if pilot.fixture_bank_root is not None:
+            validate_fixture_bank_root(sqlite_path, media_root, workspace_root, artifact_root, pilot)
     return Config(port=port, sqlite_path=sqlite_path, media_root=media_root,
                   workspace_root=workspace_root, artifact_root=artifact_root, oidc=oidc, pilot=pilot)
 
 
 def _pilot(data, issuer):
     required = {"allowed_subjects", "renderer_root", "engine_root"}
-    if not isinstance(data, dict) or not required <= set(data) or set(data) - required - {"render_timeout_sec"}:
+    if not isinstance(data, dict) or not required <= set(data) or set(data) - required - {"render_timeout_sec", "fixture_bank_root"}:
         raise ConfigError("invalid pilot configuration")
     subjects = data["allowed_subjects"]
     if (not isinstance(subjects, list) or not 1 <= len(subjects) <= 4
@@ -99,8 +101,19 @@ def _pilot(data, issuer):
     timeout = data.get("render_timeout_sec", 180)
     if type(timeout) is not int or not 30 <= timeout <= 300:
         raise ConfigError("pilot render timeout must be 30–300 seconds")
+    bank = _root(data["fixture_bank_root"]) if "fixture_bank_root" in data else None
     return PilotSettings(issuer, tuple(subjects), _root(data["renderer_root"]),
-                         _root(data["engine_root"]), timeout)
+                         _root(data["engine_root"]), timeout, bank)
+
+
+def validate_fixture_bank_root(sqlite_path, media_root, workspace_root, artifact_root, pilot):
+    bank = _root(str(pilot.fixture_bank_root))
+    if (sqlite_path.resolve().is_relative_to(bank)
+            or any(bank.is_relative_to(root) or root.is_relative_to(bank)
+                   for root in (media_root, workspace_root, artifact_root,
+                                pilot.renderer_root, pilot.engine_root))):
+        raise ConfigError("fixture bank must be separate from mutable state and checkouts")
+
 
 
 
