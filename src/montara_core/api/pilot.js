@@ -25,6 +25,12 @@ function render() {
     $("project-id").textContent = project;
     $("media").replaceChildren(); $("jobs").replaceChildren();
     const media = summary ? summary.media : [];
+    $("legacy-project").hidden = !summary || summary.fixture_available;
+    $("fixture-help").textContent = !summary ? "Selecciona un proyecto." :
+        summary.fixture_available ? "Core prepara y registra los tres medios sintéticos autorizados. No necesitas copiar archivos." :
+        "Piloto legado: el operador debe haber colocado los tres medios sintéticos en este proyecto.";
+    $("register").textContent = summary?.fixture_available ?
+        "Preparar y registrar fixture autorizado" : "Registrar fixture autorizado";
     for (const item of media) {
         const li = document.createElement("li");
         li.textContent = item.label + " · " + item.size_bytes + " bytes";
@@ -78,9 +84,14 @@ $("projects").addEventListener("change", () => run(async () => {
     project = $("projects").value; requestKey = null; summary = null; await refresh();
 }));
 $("register").addEventListener("click", () => run(async () => {
-    for (const [locator,kind] of [["camera-a.mp4","video"],["camera-b.mp4","video"],["master.wav","audio"]])
-        await api("/api/projects/"+project+"/media",{kind,locator});
-    await refresh();
+    if (summary.fixture_available) {
+        summary = await api("/api/projects/"+encodeURIComponent(project)+"/fixture", {});
+        render();
+    } else {
+        for (const [locator,kind] of [["camera-a.mp4","video"],["camera-b.mp4","video"],["master.wav","audio"]])
+            await api("/api/projects/"+project+"/media",{kind,locator});
+        await refresh();
+    }
 }));
 $("recipe").addEventListener("click", () => run(async () => {
     const id = name => summary.media.find(item => item.label === name).id;

@@ -17,10 +17,10 @@
 <label>Nombre <input id="name" maxlength="120" value="Prueba audiovisual"></label>
 <button id="create">Crear proyecto</button>
 <label>Proyecto propio <select id="projects"><option value="">Selecciona proyecto</option></select></label>
-<p>Identificador para el operador: <code id="project-id"></code></p></section>
+<p id="legacy-project" hidden>Identificador de proyecto (piloto legado): <code id="project-id"></code></p></section>
 <section class="step"><h2>2 · Medios de prueba</h2>
-<p>El operador debe colocar camera-a.mp4, camera-b.mp4 y master.wav en la carpeta privada de este proyecto. No se suben archivos desde el navegador.</p>
-<button id="register">Registrar fixture autorizado</button><ul id="media"></ul></section>
+<p id="fixture-help">Selecciona un proyecto. No se suben archivos desde el navegador.</p>
+<button id="register">Preparar y registrar fixture autorizado</button><ul id="media"></ul></section>
 <section class="step"><h2>3 · Receta mínima</h2>
 <p>Montaje canónico de 6 s, A/B/A (0–2, 2–4, 4–6 s), máster continuo. Perfil Stage de ingeniería con fundidos y color matching; no es un editor.</p>
 <button id="recipe">Guardar receta de prueba</button><p id="recipe-state"></p></section>

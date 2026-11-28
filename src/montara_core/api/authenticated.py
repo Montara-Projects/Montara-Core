@@ -190,6 +190,11 @@ def create_authenticated_server(port, origin, core, auth, *, pilot=False):
                             self.close_connection = True
                     return
             if method == "POST":
+                if pilot:
+                    match = re.fullmatch("/api/projects/"+ID+"/fixture", path)
+                    if match:
+                        self._body((), actor)
+                        return self._json(200, core.media.prepare_fixture(actor, match[1]))
                 match = re.fullmatch("/api/projects/"+ID+"/media", path)
                 if match:
                     body = self._body(("kind", "locator"), actor)
